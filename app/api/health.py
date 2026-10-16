@@ -12,7 +12,7 @@ from app.db.session import DatabaseProbe
 router = APIRouter(tags=["health"])
 logger = structlog.get_logger()
 
-CheckState = Literal["ok", "down", "configured", "not_configured", "not_started"]
+CheckState = Literal["ok", "down", "configured", "not_configured", "running", "not_started"]
 
 
 class HealthReport(BaseModel):
@@ -42,7 +42,7 @@ async def health(request: Request, response: Response) -> HealthReport:
         version=__version__,
         database=database,
         llm=llm,
-        scheduler="not_started",
+        scheduler="running" if request.app.state.scheduler.running else "not_started",
     )
     if report.status != "ok":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

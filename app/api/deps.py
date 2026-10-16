@@ -15,6 +15,7 @@ from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
 from app.integrations.llm import StructuredLLM
 from app.services.auth import resolve_session, tokens_match
+from app.services.runner import ScoutRunner
 
 SESSION_COOKIE = "ph_session"
 CSRF_HEADER = "X-CSRF-Token"
@@ -100,3 +101,19 @@ async def get_full_principal(principal: Annotated[Principal, Depends(get_princip
 
 
 CurrentUser = Annotated[Principal, Depends(get_full_principal)]
+# Any signed-in session, including one limited to a job by an Apply link. Routes using it must
+# check `can_open_job` themselves or touch nothing job-specific.
+AnyPrincipal = Annotated[Principal, Depends(get_principal)]
+
+
+def can_open_job(principal: Principal, job_user_id: int, job_id: int) -> bool:
+    scope = principal.session.scope_job_id
+    return job_user_id == principal.user.id and (scope is None or scope == job_id)
+
+
+def get_runner(request: Request) -> ScoutRunner:
+    runner: ScoutRunner = request.app.state.scout_runner
+    return runner
+
+
+Runner = Annotated[ScoutRunner, Depends(get_runner)]

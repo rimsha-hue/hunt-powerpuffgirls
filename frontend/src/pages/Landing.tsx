@@ -62,7 +62,7 @@ export default function Landing() {
 
 function Header() {
   const { data: me } = useMe()
-  const target = me ? (me.onboarded ? '/ledger' : '/onboarding') : '/login'
+  const target = me ? (me.onboarded ? '/jobs' : '/onboarding') : '/login'
   return (
     <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6">
       <Link to="/" aria-label="Power Hunt home">
@@ -170,7 +170,7 @@ function Hero() {
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <Link
-              to={me ? (me.onboarded ? '/ledger' : '/onboarding') : '/login'}
+              to={me ? (me.onboarded ? '/jobs' : '/onboarding') : '/login'}
               className="lift inline-flex items-center gap-2 rounded-xl border-3 border-ink bg-blossom px-5 py-3 font-display text-2xl tracking-wide shadow-comic-sm"
             >
               <Sparkles className="size-5" aria-hidden />

@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': backend,
+      // Signed Apply links from the digest email are handled by the backend.
+      '/apply': backend,
       '/health': backend,
       '/ready': backend,
     },

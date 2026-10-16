@@ -12,6 +12,7 @@ import { Logo } from './Logo'
 const NAV = [
   { to: '/onboarding', label: 'Onboarding', icon: Rocket },
   { to: '/ledger', label: 'Evidence ledger', icon: BookCheck },
+  { to: '/jobs', label: 'Jobs', icon: Briefcase },
 ]
 
 function CalmToggle() {
@@ -56,6 +57,8 @@ export function AppLayout() {
   const calm = useCalm()
   const logout = useLogout()
   const { data: me } = useMe()
+  // An Apply-link session sees only its job: no navigation, no settings.
+  const scoped = me?.scope_job_id != null
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -65,7 +68,7 @@ export function AppLayout() {
             <Logo />
           </NavLink>
           <nav className="order-3 flex w-full gap-2 overflow-x-auto sm:order-none sm:ml-6 sm:w-auto" aria-label="Main">
-            {NAV.map(({ to, label, icon: Icon }) => (
+            {!scoped && NAV.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -80,16 +83,9 @@ export function AppLayout() {
                 {label}
               </NavLink>
             ))}
-            <span
-              className="inline-flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-lg border-3 border-dashed border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink/60"
-              title="Arrives in Phase 2"
-            >
-              <Briefcase className="size-4" aria-hidden />
-              Jobs <span className="font-mono text-[10px] uppercase">soon</span>
-            </span>
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <CalmToggle />
+            {!scoped && <CalmToggle />}
             {me && (
               <button
                 type="button"

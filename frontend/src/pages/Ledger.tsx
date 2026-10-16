@@ -2,9 +2,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Search, Trash2 } from 'lucide-react'
 import { useDeferredValue, useState } from 'react'
 import { Link } from 'react-router'
-import { ErrorNote, Skeleton, SourceBadge, TypeTag } from '../components/ui'
+import { ErrorNote, FilterChips, Skeleton, SourceBadge, TypeTag } from '../components/ui'
 import { api, groupFacts, type Evidence, type FactGroup, type FactSource, type FactType } from '../lib/api'
-import { cx } from '../lib/cx'
 import { useToast } from '../lib/toast'
 
 const TYPES: Array<FactType | 'all'> = ['all', 'skill', 'metric', 'role', 'employer', 'degree', 'certification', 'project']
@@ -17,38 +16,6 @@ const SOURCES: Array<{ value: FactSource | 'all'; label: string }> = [
 ]
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' })
-
-function FilterChips<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string
-  options: Array<{ value: T; label: string }>
-  value: T
-  onChange: (value: T) => void
-}) {
-  return (
-    <div className="flex gap-2 overflow-x-auto pb-1" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={cx(
-            'shrink-0 rounded-full border-2 border-ink px-3 py-1 font-mono text-xs font-medium uppercase',
-            value === option.value ? 'bg-ink text-card' : 'bg-white',
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 export default function Ledger() {
   const [q, setQ] = useState('')

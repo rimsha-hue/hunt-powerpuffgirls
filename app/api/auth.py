@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete
 
-from app.api.deps import SESSION_COOKIE, AppSettings, CurrentUser, Db
+from app.api.deps import SESSION_COOKIE, AnyPrincipal, AppSettings, CurrentUser, Db
 from app.api.ratelimit import rate_limit
 from app.api.schemas import LoginIn, MeOut, SignupIn, UserOut
 from app.db.models import User
@@ -30,7 +30,7 @@ OAUTH_COOKIE_PATH = "/api/auth/google"
 OAUTH_TTL_SECONDS = 600
 
 
-def _set_cookie(response: Response, token: str, settings: AppSettings) -> None:
+def set_session_cookie(response: Response, token: str, settings: AppSettings) -> None:
     response.set_cookie(
         SESSION_COOKIE,
         token,
@@ -42,7 +42,9 @@ def _set_cookie(response: Response, token: str, settings: AppSettings) -> None:
     )
 
 
-def me_out(user: User, csrf_token: str, settings: AppSettings) -> MeOut:
+def me_out(
+    user: User, csrf_token: str, settings: AppSettings, scope_job_id: int | None = None
+) -> MeOut:
     return MeOut(
         user=UserOut.model_validate(user),
         csrf_token=csrf_token,
@@ -50,6 +52,7 @@ def me_out(user: User, csrf_token: str, settings: AppSettings) -> MeOut:
         calm_mode=user.profile.calm_mode,
         is_demo=bool(settings.demo_user_email)
         and user.email == (settings.demo_user_email or "").lower(),
+        scope_job_id=scope_job_id,
     )
 
 
@@ -64,7 +67,7 @@ async def signup(body: SignupIn, response: Response, db: Db, settings: AppSettin
     audit.record(
         db, user_id=user.id, actor="user", action="signed_up", entity="user", entity_id=user.id
     )
-    _set_cookie(response, token, settings)
+    set_session_cookie(response, token, settings)
     return me_out(user, session.csrf_token, settings)
 
 
@@ -78,7 +81,7 @@ async def login(body: LoginIn, response: Response, db: Db, settings: AppSettings
     audit.record(
         db, user_id=user.id, actor="user", action="logged_in", entity="user", entity_id=user.id
     )
-    _set_cookie(response, token, settings)
+    set_session_cookie(response, token, settings)
     return me_out(user, session.csrf_token, settings)
 
 
@@ -178,17 +181,19 @@ async def google_callback(
         status_code=status.HTTP_302_FOUND,
     )
     response.delete_cookie(OAUTH_COOKIE, path=OAUTH_COOKIE_PATH)
-    _set_cookie(response, token, settings)
+    set_session_cookie(response, token, settings)
     return response
 
 
 @router.get("/me")
-async def me(principal: CurrentUser, settings: AppSettings) -> MeOut:
-    return me_out(principal.user, principal.session.csrf_token, settings)
+async def me(principal: AnyPrincipal, settings: AppSettings) -> MeOut:
+    """Also answers for a session opened by an Apply link, so the app can show that one job."""
+    session = principal.session
+    return me_out(principal.user, session.csrf_token, settings, session.scope_job_id)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request, principal: CurrentUser, db: Db) -> Response:
+async def logout(request: Request, principal: AnyPrincipal, db: Db) -> Response:
     token = request.cookies.get(SESSION_COOKIE, "")
     await end_session(db, token)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)

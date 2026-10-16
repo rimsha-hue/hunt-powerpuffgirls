@@ -25,6 +25,8 @@ dependencies = [
     "geonamescache>=2.0",
     "litellm>=1.55",
     "beautifulsoup4>=4.12",
+    "yake>=0.4.8",
+    "apscheduler>=3.10,<4",
 ]
 
 [project.optional-dependencies]
@@ -48,7 +50,7 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [[tool.mypy.overrides]]
-module = ["pdfplumber.*", "docx.*", "litellm.*", "geonamescache.*"]
+module = ["pdfplumber.*", "docx.*", "litellm.*", "geonamescache.*", "yake.*", "apscheduler.*"]
 ignore_missing_imports = true
 
 [tool.ruff]
