@@ -5,3 +5,4 @@ from pathlib import Path
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 SAMPLE_RESUME = FIXTURES_DIR / "demo_resume.docx"
 DEMO_PROFILE = FIXTURES_DIR / "demo_profile.json"
+RECORDED_JOBS = FIXTURES_DIR / "recorded_jobs.json"

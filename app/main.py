@@ -14,23 +14,43 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import __version__
-from app.api import auth, health, ledger, meta, profile
+from app.api import auth, health, jobs, ledger, meta, profile
 from app.api.ratelimit import RateLimiter
+from app.assets import RECORDED_JOBS
 from app.config import Settings, get_settings
 from app.db.session import DatabaseProbe, create_engine, create_session_factory, ping
 from app.domain.locations import LocationIndex, load_geonames
 from app.domain.taxonomy import default_taxonomy
+from app.integrations.email import EmailProvider, NullEmailProvider, SmtpEmailProvider
 from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
+from app.integrations.jobs.base import JobSource
+from app.integrations.jobs.sources import (
+    ArbeitnowSource,
+    JSearchSource,
+    RecordedSource,
+    RemotiveSource,
+)
 from app.integrations.llm import StructuredLLM, build_llm
 from app.logging import configure_logging
 from app.middleware import BodySizeLimitMiddleware
 from app.security import SecurityHeadersMiddleware
+from app.services.runner import ScoutRunner, ScoutScheduler
+from app.services.scout import ScoutSources
 
 logger = structlog.get_logger()
 
 # Paths that belong to the backend; the SPA fallback must never shadow them.
-BACKEND_PREFIXES = ("api/", "internal/", "mcp", "health", "ready", "docs", "openapi.json")
+BACKEND_PREFIXES = (
+    "api/",
+    "apply/",
+    "internal/",
+    "mcp",
+    "health",
+    "ready",
+    "docs",
+    "openapi.json",
+)
 CACHE_IMMUTABLE = "public, max-age=31536000, immutable"  # content-hashed build assets
 CACHE_PUBLIC_FILES = "public, max-age=86400"  # media, icons
 CACHE_HTML = "no-cache"  # always revalidate the app shell so deploys show up at once
@@ -44,6 +64,39 @@ class ImmutableStaticFiles(StaticFiles):
         return response
 
 
+def build_job_sources(settings: Settings, http: httpx.AsyncClient) -> ScoutSources:
+    primary: list[JobSource] = []
+    if settings.rapidapi_key and settings.rapidapi_key.get_secret_value():
+        primary.append(
+            JSearchSource(
+                http,
+                api_url=str(settings.jsearch_api_url),
+                api_key=settings.rapidapi_key.get_secret_value(),
+            )
+        )
+    return ScoutSources(
+        primary=primary,
+        secondary=[
+            RemotiveSource(http, api_url=str(settings.remotive_api_url)),
+            ArbeitnowSource(http, api_url=str(settings.arbeitnow_api_url)),
+        ],
+        recorded=RecordedSource(RECORDED_JOBS),
+    )
+
+
+def build_email(settings: Settings) -> EmailProvider:
+    if not settings.email_enabled or not settings.smtp_user or not settings.smtp_app_password:
+        return NullEmailProvider()
+    return SmtpEmailProvider(
+        host=settings.smtp_host,
+        port=settings.smtp_port,
+        user=settings.smtp_user,
+        password=settings.smtp_app_password.get_secret_value(),
+        timeout=settings.smtp_timeout_seconds,
+        redirect_to=settings.email_redirect_to,
+    )
+
+
 async def _load_locations() -> LocationIndex:
     index = await anyio.to_thread.run_sync(load_geonames)
     logger.info("locations_loaded", places=len(index.places))
@@ -55,6 +108,8 @@ def create_app(
     llm: StructuredLLM | None = None,
     fetcher: SafeFetcher | None = None,
     locations: LocationIndex | None = None,
+    job_sources: ScoutSources | None = None,
+    email: EmailProvider | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, settings.log_json)
@@ -97,10 +152,27 @@ def create_app(
             app.state.locations = ready
         else:
             app.state.locations = asyncio.create_task(_load_locations())
+
+        async def location_index() -> LocationIndex:
+            index: LocationIndex = await app.state.locations
+            return index
+
+        app.state.scout_runner = ScoutRunner(
+            session_factory=app.state.session_factory,
+            sources=job_sources or build_job_sources(settings, http),
+            email=email or build_email(settings),
+            taxonomy=app.state.taxonomy,
+            locations=location_index,
+            settings=settings,
+        )
+        app.state.scheduler = ScoutScheduler(app.state.scout_runner, settings.scout_interval_hours)
+        if settings.scheduler_enabled:
+            app.state.scheduler.start()
         logger.info(
             "app_started", env=settings.app_env, version=__version__, llm=app.state.llm.configured
         )
         yield
+        app.state.scheduler.shutdown()
         if isinstance(app.state.locations, asyncio.Task) and not app.state.locations.done():
             app.state.locations.cancel()
         await app.state.db_probe.close()
@@ -127,7 +199,8 @@ def create_app(
         upload_limit_bytes=settings.max_upload_mb * 1024 * 1024,
     )
 
-    for router in (health.router, auth.router, profile.router, ledger.router, meta.router):
+    routers = (health.router, auth.router, profile.router, ledger.router, meta.router, jobs.router)
+    for router in routers:
         app.include_router(router)
 
     _mount_frontend(app, settings)

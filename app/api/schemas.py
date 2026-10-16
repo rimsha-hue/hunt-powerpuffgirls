@@ -7,6 +7,7 @@ from typing import Annotated
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.domain.profile import NoticePeriod, SalaryPeriod, WorkAuthorization
+from app.domain.status import JobStatus
 from app.integrations.github import USERNAME_RE
 from app.services.auth import MIN_PASSWORD_LENGTH
 
@@ -42,6 +43,8 @@ class MeOut(BaseModel):
     onboarded: bool
     calm_mode: bool
     is_demo: bool
+    # Set when the session came from a signed Apply link: it opens this one job only.
+    scope_job_id: int | None = None
 
 
 class PlaceOut(BaseModel):
@@ -180,3 +183,66 @@ class PortfolioIngestionOut(BaseModel):
     facts: list[EvidenceOut]
     rejected_by_code: int
     llm_note: str | None
+
+
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source: str
+    title: str
+    company: str
+    location: str
+    remote: bool
+    url: str
+    posted_at: datetime | None
+    fetched_at: datetime
+    apply_method: str
+    apply_email: str | None
+    apply_url: str | None
+    required_attachments: list[str]
+    match_score: int
+    ats_before: int
+    matched_skills: list[str]
+    missing_skills: list[str]
+    status: str
+    status_changed_at: datetime
+
+
+class KeywordOut(BaseModel):
+    term: str
+    kind: str
+    weight: int
+    found: bool
+
+
+class JobDetailOut(JobOut):
+    description: str
+    keywords: list[KeywordOut]
+    ats_checks: dict[str, bool]
+    ats_coverage: float
+
+
+class JobStatusIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: JobStatus
+
+
+class SourceOutcomeOut(BaseModel):
+    name: str
+    fetched: int
+    error: str | None
+
+
+class ScoutRunOut(BaseModel):
+    queries: int
+    fetched: int
+    relevant: int
+    duplicates: int
+    new_jobs: int
+    rescored: int
+    used_recorded: bool
+    sources: list[SourceOutcomeOut]
+    digest_sent: int
+    digest_note: str | None

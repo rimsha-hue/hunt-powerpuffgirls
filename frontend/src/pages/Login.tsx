@@ -8,7 +8,8 @@ import { usePublicConfig } from '../lib/config'
 import { cx } from '../lib/cx'
 import { useAuthMutation, useMe } from '../lib/session'
 
-const GOOGLE_ERRORS: Record<string, string> = {
+const LOGIN_ERRORS: Record<string, string> = {
+  apply_link: "That Apply link has expired or was already used. Log in to see your jobs.",
   google_cancelled: 'Google sign-in was cancelled.',
   google_failed: "We couldn't verify that Google sign-in. Please try again.",
   google_unavailable: 'Google sign-in is not available right now. Use email instead.',
@@ -56,9 +57,10 @@ export default function Login() {
   const signup = useAuthMutation('signup')
   const active = mode === 'login' ? login : signup
   const config = usePublicConfig()
-  const googleError = GOOGLE_ERRORS[params.get('error') ?? '']
+  const linkError = LOGIN_ERRORS[params.get('error') ?? '']
 
-  if (me) return <Navigate to={me.onboarded ? '/ledger' : '/onboarding'} replace />
+  // A session opened by an Apply link covers one job; logging in here upgrades it.
+  if (me && me.scope_job_id === null) return <Navigate to={me.onboarded ? '/jobs' : '/onboarding'} replace />
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -69,7 +71,7 @@ export default function Login() {
         password: String(form.get('password') ?? ''),
         ...(mode === 'signup' ? { name: String(form.get('name') ?? '') } : {}),
       },
-      { onSuccess: (result) => navigate(result.onboarded ? '/ledger' : '/onboarding', { replace: true }) },
+      { onSuccess: (result) => navigate(result.onboarded ? '/jobs' : '/onboarding', { replace: true }) },
     )
   }
 
@@ -108,9 +110,9 @@ export default function Login() {
               </div>
             </>
           )}
-          {googleError && (
+          {linkError && (
             <div className="mb-4">
-              <ErrorNote>{googleError}</ErrorNote>
+              <ErrorNote>{linkError}</ErrorNote>
             </div>
           )}
           <div className="mb-5 grid grid-cols-2 gap-2" role="tablist">

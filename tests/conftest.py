@@ -103,6 +103,7 @@ def settings(database_url: str, static_dir: Path) -> Settings:
         static_dir=static_dir,
         log_json=False,
         demo_user_email="demo@example.com",
+        scheduler_enabled=False,
         _env_file=None,  # type: ignore[call-arg]
     )
 

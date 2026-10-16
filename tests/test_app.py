@@ -55,7 +55,7 @@ class TestFrontend:
         assert "Power Hunt" in response.text
 
     def test_client_routes_fall_back_to_index(self, client: TestClient) -> None:
-        response = client.get("/apply/42")
+        response = client.get("/jobs/42")
         assert response.status_code == 200
         assert "Power Hunt" in response.text
 

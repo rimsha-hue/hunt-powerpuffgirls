@@ -130,6 +130,71 @@ class ClaimBlocklist(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Job(Base):
+    """A posting found by the Scout for one user, with its frozen ATS keywords and scores."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "source", "external_id", name="uq_jobs_source_id"),
+        UniqueConstraint("user_id", "dedupe_hash", name="uq_jobs_dedupe_hash"),
+        Index("ix_jobs_user_status", "user_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = _user_fk()
+    source: Mapped[str] = mapped_column(String(20))
+    external_id: Mapped[str] = mapped_column(String(200))
+    # sha256 of normalised company + title + location, so one posting on two boards is one job.
+    dedupe_hash: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(300))
+    company: Mapped[str] = mapped_column(String(200))
+    location: Mapped[str] = mapped_column(String(200), default="")
+    remote: Mapped[bool] = mapped_column(default=False)
+    url: Mapped[str] = mapped_column(String(1000))
+    description: Mapped[str] = mapped_column(Text, default="")
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    apply_method: Mapped[str] = mapped_column(String(10))  # email | form | unknown
+    apply_email: Mapped[str | None] = mapped_column(String(320))
+    apply_url: Mapped[str | None] = mapped_column(String(1000))
+    required_attachments: Mapped[list[str]] = mapped_column(default=list)
+    # Frozen when first scored, so the "before" and "after" ATS scores use the same list.
+    ats_keywords_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    ats_before: Mapped[int] = mapped_column(Integer, default=0)
+    ats_detail_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    match_score: Mapped[int] = mapped_column(Integer, default=0)
+    matched_skills: Mapped[list[str]] = mapped_column(default=list)
+    missing_skills: Mapped[list[str]] = mapped_column(default=list)
+    status: Mapped[str] = mapped_column(String(20), default="new")
+    status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Set when the job went out in a digest, so each job is announced once.
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ApplyToken(Base):
+    """A signed Apply link: only the hash is stored; single use, expiring, bound to user and job."""
+
+    __tablename__ = "apply_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = _user_fk()
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = _user_fk()
+    kind: Mapped[str] = mapped_column(String(20))  # "digest"
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    job_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+
+
 class Audit(Base):
     __tablename__ = "audit"
 

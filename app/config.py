@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     rate_limit_oauth: str = "20/minute"
     rate_limit_ingest: str = "10/minute"
     rate_limit_lookup: str = "120/minute"
+    # "Fetch now" spends the job APIs' monthly quotas (JSearch free tier: 200 requests).
+    rate_limit_scout: str = "6/hour"
 
     # --- Request limits ---
     max_upload_mb: int = Field(default=5, ge=1, le=20)
@@ -89,16 +91,40 @@ class Settings(BaseSettings):
     # Region used to read phone numbers written without a country code (ISO 3166 alpha-2).
     default_phone_region: str = Field(default="PK", pattern=r"^[A-Z]{2}$")
 
-    # --- Later phases ---
+    # --- Job sources (Scout) ---
+    # JSearch on RapidAPI is the primary source; Remotive and Arbeitnow need no key.
     rapidapi_key: SecretStr | None = None
-    tavily_api_key: SecretStr | None = None
+    jsearch_api_url: AnyHttpUrl = AnyHttpUrl("https://jsearch.p.rapidapi.com")
+    remotive_api_url: AnyHttpUrl = AnyHttpUrl("https://remotive.com/api/remote-jobs")
+    arbeitnow_api_url: AnyHttpUrl = AnyHttpUrl("https://www.arbeitnow.com/api/job-board-api")
+    # Searches per user per run (role x location pairs). Each is one JSearch request, and the
+    # free tier allows 200 a month, so keep this small.
+    scout_max_queries: int = Field(default=3, ge=1, le=20)
+    # Ignore postings older than this.
+    scout_max_age_days: int = Field(default=30, ge=1, le=365)
+    scout_interval_hours: int = Field(default=6, ge=1, le=168)
+    # Runs the Scout on the interval above in this process. Turn off where another instance
+    # already runs it, or when only POST /internal/run-scout should trigger it.
+    scheduler_enabled: bool = True
+    # Shared secret for POST /internal/run-scout (header X-Internal-Token). Empty disables it.
+    internal_token: SecretStr | None = None
+    # Recorded jobs instead of live APIs, so a demo never depends on a free quota.
+    demo_mode: bool = False
+
+    # --- Email (digest and, later, applications) ---
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_user: str | None = None
     smtp_app_password: SecretStr | None = None
-    demo_mode: bool = False
+    smtp_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    # Development only: deliver every email to this inbox instead of the real recipient.
+    email_redirect_to: str | None = None
+    # Signed Apply links in the digest stay valid this long (spec: 72 hours).
+    apply_link_hours: int = Field(default=72, ge=1, le=168)
+
+    # --- Later phases ---
+    tavily_api_key: SecretStr | None = None
     infer_threshold: float = Field(default=0.78, ge=0.0, le=1.0)
-    scout_interval_hours: int = Field(default=6, ge=1, le=168)
 
     static_dir: Path = ROOT_DIR / "frontend" / "dist"
 
@@ -119,6 +145,7 @@ class Settings(BaseSettings):
         "rate_limit_oauth",
         "rate_limit_ingest",
         "rate_limit_lookup",
+        "rate_limit_scout",
     )
     @classmethod
     def _valid_rate_limit(cls, value: str) -> str:
@@ -174,7 +201,14 @@ class Settings(BaseSettings):
             "oauth": self.rate_limit_oauth,
             "ingest": self.rate_limit_ingest,
             "lookup": self.rate_limit_lookup,
+            "scout": self.rate_limit_scout,
         }
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(
+            self.smtp_user and self.smtp_app_password and self.smtp_app_password.get_secret_value()
+        )
 
 
 @lru_cache

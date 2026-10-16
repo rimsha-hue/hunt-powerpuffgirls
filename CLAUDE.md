@@ -15,7 +15,7 @@ own confirmation). When the system cannot prove something, it asks the user.
 - Deadline: 17 October 2026, 12:45 PM PKT. Deploy target: Alternate Clouds, one Docker container.
 - Judging: technical execution 25, usefulness 20, theme 15, creativity 15, automation depth 15,
   UX 10. Grayhat (security engineers) are judges, so security and reliability are visible.
-- Status: Phases 0 and 1 done. Phase 2 (Scout, ATS, Jobs screen, digest email) is next.
+- Status: Phases 0, 1 and 2 done. Phase 3 (Tailor, Verifier, Needs-you panel, CV PDF) is next.
   See `docs/HANDOVER.md` for the exact state and known issues.
 
 ## 2. How to work here
@@ -136,6 +136,12 @@ normaliser with tests, suggestions endpoint if the value set is large.
   name always outranks alternates.
 - **Ruff `--fix` removes imports that are unused at that moment.** Add the import after the code
   that uses it, or rerun mypy after fixing.
+- **psycopg async needs the selector event loop on Windows.** Uvicorn sets it up; a standalone
+  script against Neon must call `asyncio.run(main(), loop_factory=asyncio.SelectorEventLoop)`.
+- **JSearch moved to `/search-v2`** and its free tier allows 200 requests a month. Each Scout run
+  spends `SCOUT_MAX_QUERIES` per user; the scheduler's first run waits a full interval so dev
+  reloads don't spend quota. Remotive ignores its `search` parameter and Arbeitnow has none, so
+  relevance is decided in code (`domain/jobs.py`).
 - **Rate limiting** uses the `limits` library through a dependency (`api/ratelimit.py`), not
   slowapi (slowapi can't take per-app settings). Client IP comes from uvicorn, which trusts
   `X-Forwarded-For` only from `FORWARDED_ALLOW_IPS`.

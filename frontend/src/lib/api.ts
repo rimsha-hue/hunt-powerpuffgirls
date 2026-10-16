@@ -78,6 +78,8 @@ export interface Me {
   onboarded: boolean
   calm_mode: boolean
   is_demo: boolean
+  /** Set when this session came from a signed Apply link: it opens that one job only. */
+  scope_job_id: number | null
 }
 
 /** A place the server recognised; `key` is what gets stored and sent back. */
@@ -197,4 +199,68 @@ export function groupFacts(rows: Evidence[]): FactGroup[] {
     }
   }
   return [...groups.values()]
+}
+
+export type ApplyMethod = 'email' | 'form' | 'unknown'
+
+export type JobStatus =
+  | 'new'
+  | 'shortlisted'
+  | 'in_review'
+  | 'approved'
+  | 'applied'
+  | 'interview'
+  | 'assessment'
+  | 'offer'
+  | 'rejected'
+  | 'expired'
+  | 'skipped'
+
+export interface Job {
+  id: number
+  source: string
+  title: string
+  company: string
+  location: string
+  remote: boolean
+  url: string
+  posted_at: string | null
+  fetched_at: string
+  apply_method: ApplyMethod
+  apply_email: string | null
+  apply_url: string | null
+  required_attachments: string[]
+  match_score: number
+  ats_before: number
+  matched_skills: string[]
+  missing_skills: string[]
+  status: JobStatus
+  status_changed_at: string
+}
+
+export interface JobKeyword {
+  term: string
+  kind: 'skill' | 'phrase'
+  weight: number
+  found: boolean
+}
+
+export interface JobDetail extends Job {
+  description: string
+  keywords: JobKeyword[]
+  ats_checks: Record<string, boolean>
+  ats_coverage: number
+}
+
+export interface ScoutRun {
+  queries: number
+  fetched: number
+  relevant: number
+  duplicates: number
+  new_jobs: number
+  rescored: number
+  used_recorded: boolean
+  sources: Array<{ name: string; fetched: number; error: string | null }>
+  digest_sent: number
+  digest_note: string | null
 }

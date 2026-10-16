@@ -8,8 +8,8 @@ Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC
 |---|---|---|
 | 0 | Skeleton, Dockerfile, CI, health | **Done**. Deploy blocked by the platform (see section 4). |
 | 1 | Auth, demo seed, resume parsing, evidence ledger, GitHub ingestion, Onboarding and Ledger screens | **Done**, plus portfolio ingestion, Google sign-in, input guardrails, AI extraction fixed (decision log). |
-| 2 | Scout with fallbacks, dedupe, Matcher, ATS scorer, Classifier, Jobs screen, digest email with signed Apply links | **Next.** Not started. |
-| 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | Not started |
+| 2 | Scout with fallbacks, dedupe, Matcher, ATS scorer, Classifier, Jobs screen, digest email with signed Apply links | **Done.** Verified live: 3 JSearch queries, 27 new jobs, digest delivered with working Apply links. |
+| 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | **Next.** Not started |
 | 4 | Email apply flow (attachments, humanized email, SMTP send) | Not started |
 | 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | Not started |
 | 6 | Coach and growth plans with GitHub verification; Activity screen | Not started |
@@ -58,34 +58,31 @@ automatically at startup. The demo resume is fictional (Ayesha Khan, `fixtures/d
    if Google sign-in is configured.
 5. Rebuild, then Deploy, then open `/health`.
 
-## 5. Phase 2 plan (next)
+## 5. Phase 2: what was built
 
-Spec sections 3 (Flow A), 6 (ATS), 11 (agents), 12 (jobs table), 14 (fallbacks). Suggested order:
+- Tables `jobs`, `apply_tokens`, `notifications` (migration 0005). Statuses in
+  `domain/status.py` (one transition function).
+- Sources (`integrations/jobs/`): JSearch `/search-v2` (primary), Remotive, Arbeitnow, and
+  `fixtures/recorded_jobs.json` (40 real postings recorded 16 Oct). Tiers: JSearch, then
+  Remotive + Arbeitnow; recorded postings only when every live source failed, or in `DEMO_MODE`.
+- Code decides relevance (`domain/jobs.py`): title vs target roles (abbreviations expanded, head
+  noun checked), place vs target locations, age. Dedupe by source id, then sha256 of
+  company + title + location.
+- ATS (`domain/ats.py`): taxonomy skills weighted by section (requirements 2, else 1) plus up to
+  five repeated 2-3 word YAKE phrases (job titles, pay and filler excluded); frozen per job.
+- Matcher (`domain/matching.py`): 60% skills proven by the ledger (smoothed for short postings),
+  30% title, 10% place. Open jobs are re-scored on every run; ATS "before" stays frozen.
+- Classifier (`domain/classify.py`): apply email and attachments only from sentences about applying.
+- `services/runner.py`: one run per user at a time, jobs committed before the email.
+  APScheduler every `SCOUT_INTERVAL_HOURS`; `POST /internal/run-scout` with `X-Internal-Token`.
+- Digest (`services/notifier.py`): top 10 new jobs at or above the threshold, each with a signed
+  link `/apply/{job_id}?t=` (single use, 72 h). Without a session it opens a session scoped to
+  that job; the frontend then shows only that job.
+- Frontend: Jobs (filters, Fetch now with speed lines, staggered cards) and Job detail
+  (highlighted keywords, ATS chips and checks, method, attachments, Gate 1).
 
-1. `jobs`, `apply_tokens`, `notifications` tables (migration 0005). Status transitions in one
-   function (`domain/status.py`, spec section 12).
-2. Job sources behind one interface (`integrations/jobs/`): JSearch (RapidAPI key is in `.env`),
-   Remotive and Arbeitnow (no key), recorded fixtures for `DEMO_MODE`. Normalise to one schema.
-   Search uses profile roles and location keys (city name + country code from `LocationIndex`).
-3. Dedupe: source id first, then normalised hash of company + title + location.
-4. ATS scorer (`domain/ats.py`): keyword set frozen per job (taxonomy + YAKE, section weights
-   2/1), coverage synonym-aware, format checks, `round(100 * (0.85 * coverage + 0.15 * format))`.
-   Property test: the score never rises from keywords the ledger can't support.
-5. Matcher (match score, missing skills) and Classifier (apply method email/form/unknown,
-   apply email/URL, required attachments).
-6. Scheduler: APScheduler in process, every `SCOUT_INTERVAL_HOURS`, plus a protected
-   `POST /internal/run-scout`. Report scheduler state in `/health`.
-7. Signed Apply links: 32-byte random tokens, stored hashed, single use, 72 h, bound to user and
-   job; a token without a session creates a session scoped to that job (`scope_job_id` already
-   exists and `get_full_principal` already rejects scoped sessions elsewhere).
-8. Digest email via an `EmailProvider` interface (Gmail SMTP with app password; SMTP keys not in
-   `.env` yet). Job cards: title, company, match, ATS, apply method, Apply now.
-9. Jobs screen: cards with match, ATS before, method badge, posted date, Apply now; filters;
-   "Fetch now" with the speed-lines animation (Calm mode aware).
-10. Tests with `respx` for every source and the SMTP provider mocked.
-
-Keys still needed from the owner: `SMTP_USER`, `SMTP_APP_PASSWORD` (Gmail app password),
-optionally `GITHUB_TOKEN`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
+Before deploying: do not copy `EMAIL_REDIRECT_TO` to production (a development setting that sends
+every email to one inbox), and set `INTERNAL_TOKEN` if a cron will call `/internal/run-scout`.
 
 ## 6. Useful snippets
 
@@ -127,4 +124,7 @@ Check which `.env` keys are set without printing values:
 | Server-side sessions instead of JWT | Revocable (logout, delete my data), CSRF token per session |
 | GeoNames index loads in the background | App ready immediately; only lookups wait |
 | One-line commit messages, no AI attribution | Owner's rule |
+| Recorded jobs only when every live source fails | Old postings shown when live sources merely found nothing would mislead |
+| Match score smoothed toward 50% by a prior of weight 2 | Short postings naming one skill scored 100; the ATS formula stays exactly as specified |
+| YAKE phrases: 2-3 words, repeated, no job titles or filler | Single YAKE words ("build", "model") were noise that penalised every CV |
 | LLM chain: Groq gpt-oss-120b, gpt-oss-20b, Gemini 3.8 Flash, Gemini 3.5 Flash-Lite; strict JSON schema; reasoning effort low; 8192 tokens | gpt-oss spent the 2048-token budget on reasoning (8 facts) and gpt-oss-20b rejected json_object. Now 31 to 33 facts with 0 rejected on the demo resume, roles and employers included. Extraction prompt asks for verbatim spans because code rejects any word not on the cited line |

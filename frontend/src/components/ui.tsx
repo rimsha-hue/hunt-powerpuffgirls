@@ -182,3 +182,36 @@ export function ErrorNote({ children }: { children: ReactNode }) {
     </p>
   )
 }
+
+/** A row of single-choice filter chips. */
+export function FilterChips<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: Array<{ value: T; label: string }>
+  value: T
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cx(
+            'shrink-0 rounded-full border-2 border-ink px-3 py-1 font-mono text-xs font-medium uppercase',
+            value === option.value ? 'bg-ink text-card' : 'bg-white',
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
