@@ -117,6 +117,17 @@ class TestStrictSchema:
         for keyword in ("maxLength", "minLength", "minimum", "maxItems", "default", "title"):
             assert keyword not in text
 
+    def test_fields_named_like_keywords_are_kept(self) -> None:
+        class Named(BaseModel):
+            title: str = Field(max_length=10)
+            format: str = "plain"
+            body: str
+
+        schema = strict_json_schema(Named.model_json_schema())
+        assert list(schema["properties"]) == ["title", "format", "body"]
+        assert schema["required"] == ["title", "format", "body"]
+        assert "maxLength" not in str(schema) and "Title" not in str(schema)
+
 
 @pytest.fixture
 def sent(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:

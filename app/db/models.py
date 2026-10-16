@@ -287,6 +287,34 @@ class CompanyFact(Base):
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class SkillPlan(Base):
+    """A growth plan: one project that proves a skill the ledger lacks (spec section 7)."""
+
+    __tablename__ = "skill_plans"
+    __table_args__ = (UniqueConstraint("user_id", "skill_key", name="uq_skill_plans_user_skill"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = _user_fk()
+    # The job whose gap started the plan; the plan outlives the job.
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    skill: Mapped[str] = mapped_column(String(100))  # taxonomy name, e.g. "Kubernetes"
+    skill_key: Mapped[str] = mapped_column(String(100))  # ledger value, e.g. "kubernetes"
+    title: Mapped[str] = mapped_column(String(200))
+    why: Mapped[str] = mapped_column(Text)
+    # [{"text": ..., "done": bool}]
+    steps_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    hours: Mapped[int] = mapped_column(Integer)
+    # open -> in_progress -> verified
+    status: Mapped[str] = mapped_column(String(12), default="open")
+    written_by: Mapped[str] = mapped_column(String(8))  # "llm" or "template"
+    repo_url: Mapped[str | None] = mapped_column(String(300))
+    # The last repo check, one row per acceptance criterion: [{"name", "passed", "detail"}]
+    checks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ApplicationFile(Base):
     """A file the user added for an application (transcript, references, samples). Kept in the
     database: the platform's disk is not persistent, and these are small (size-capped) files."""

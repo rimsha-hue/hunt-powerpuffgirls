@@ -1,4 +1,4 @@
-# Build Log: Power Hunt, phases 0 to 5 and 7
+# Build Log: Power Hunt, phases 0 to 7
 
 Context file for a Claude Code session that continues this project, especially one that runs the
 stack in Docker. Read it after `CLAUDE.md` (rules), and alongside `docs/HANDOVER.md` (status),
@@ -12,12 +12,12 @@ how they were fixed, and every file changed. State as of 17 October 2026 (deadli
 
 | Item | Value |
 |---|---|
-| Phases done | 0, 1, 2, 3, 4, 5, 7 (eval; MCP not built) |
-| Next | Phase 6 (Coach and growth plans), then deploy |
-| Tests | **470 passed** (`pytest -q --timeout=60`, about 2 minutes); eval baseline check passes |
+| Phases done | 0 to 6, and 7's eval, malicious JD test and CI baseline (MCP not built) |
+| Next | Leftovers in section 14 (MCP, bookmarklet, Playwright), then deploy |
+| Tests | **509 passed** (`pytest -q --timeout=60`, about 2 minutes); eval baseline check passes |
 | Static checks | ruff format and check, mypy strict on `app`, `tsc` (via `npm run build`), oxlint: all clean |
-| Database | Neon Postgres in dev, Alembic head **0009**. Tests use SQLite built by the same migrations |
-| Current branch | `feat/phase-7-eval` (on top of `feat/phase-5-form-apply`) |
+| Database | Neon Postgres in dev, Alembic head **0010**. Tests use SQLite built by the same migrations |
+| Current branch | `feat/phase-6-coach` (on top of `feat/phase-7-eval`) |
 | Deploy | Not live: the Alternate Clouds builder fails (`volume_placement_capacity`). Not caused by our code |
 
 ### Branch stack (each PR builds on the previous one; none merged into `main` after PR #6)
@@ -31,10 +31,11 @@ main (c43d75c, PR #6 merged)
                  └─ 336602d  feat: tailor, verifier with three-way routing ...         feat/phase-3-tailor-verifier
                      └─ 7060e4c  feat: email apply flow with verified drafts ...       feat/phase-4-email-apply
                          └─ 820b35b  feat: form apply flow with question discovery ... feat/phase-5-form-apply
-                             └─ feat: claim checker eval ...                           feat/phase-7-eval  (HEAD)
+                             └─ feat: claim checker eval ...                           feat/phase-7-eval
+                                 └─ feat: coach growth plans ...                       feat/phase-6-coach  (HEAD)
 ```
 
-Merge in this order, or merge only `feat/phase-7-eval` (it contains everything). There is
+Merge in this order, or merge only `feat/phase-6-coach` (it contains everything). There is
 no `gh` CLI on the owner's machine and the token is read-only, so the owner opens PRs in the
 browser: `https://github.com/rimsha-hue/hunt-powerpuffgirls/pull/new/<branch>`.
 
@@ -687,6 +688,149 @@ test_verifier_decisions}.py`.
 
 ---
 
+## 10c. Phase 6: Coach, growth plans, GitHub verification, Activity (branch `feat/phase-6-coach`)
+
+**Done-when (spec):** linking a qualifying repo turns a gap into Verified.
+**Tested end to end** (`tests/integration/test_plans_api.py`):
+- A tailored CV has an open Needs-you claim for "Kubernetes".
+- A repo with 1 commit fails only the commit check.
+- A repo with 5 commits passes, and then:
+  - Kubernetes joins the ledger with `source=github` and the repo URL;
+  - the open claim becomes Verified (badge source "GitHub");
+  - the job no longer lists the gap.
+
+**Verified live** against Neon, Groq and the real GitHub API (demo user):
+- 24 of 27 jobs have gaps.
+- Groq wrote plans for Data Science, Kubernetes and Apache Kafka, at 12 to 18 hours each.
+- Linking `github.com/kubernetes/examples` failed with the right reasons: wrong owner, started
+  6 June 2014, no Data Science, 2103 commits.
+- Activity counters: 138 claims checked automatically, 11 sent to the user, 0 unverified claims
+  shipped.
+
+### Steps
+1. Settings (`app/config.py`):
+   - `COACH_MIN_COMMITS` (default 3, from the spec).
+   - `COACH_README_MAX_CHARS` (100,000).
+2. Migration `0010_skill_plans.py` adds the table `skill_plans`. There is one plan per user and
+   skill (`skill_key` = ledger value), holding `steps_json`, `hours`, `status`
+   (open, in_progress, verified), `written_by` (llm or template), `repo_url` and `checks_json`.
+   `job_id` uses SET NULL, so a plan outlives its job. **Applied to Neon.**
+3. `app/domain/coach.py` (pure):
+   - `plan_problems` checks a plan:
+     - 4 to 6 steps, each at most 200 characters;
+     - at most 30 hours;
+     - the style rules (banned phrases, dashes);
+     - it must name the skill;
+     - it may touch at most `MAX_EXTRA_SKILLS` = 2 other skills the ledger doesn't prove. Git and
+       GitHub never count.
+   - `template_plan`: always valid, used when there's no LLM or both drafts fail.
+   - `acceptance()`: the four criteria in plain words, written by code.
+   - `parse_repo_url`: only `https://github.com/{owner}/{repo}` (optional `.git` or `/`).
+   - `check_repo` runs the four checks, each with a reason:
+     - **owner:** matches the profile's GitHub username, not a fork;
+     - **fresh:** created, or first commit, on or after the start of the plan's day (UTC);
+     - **skill:** found in languages, topics (hyphens read as spaces), description or README,
+       through the taxonomy, so "k8s" counts;
+     - **commits:** at least `COACH_MIN_COMMITS`.
+   - `next_status`: verified is final; otherwise any step done or a linked repo means
+     in_progress.
+4. `app/domain/activity.py`: plain-language labels for every audit action, and which human gate
+   each records (1 to 4).
+5. `app/integrations/github.py` `repo_facts(ref, readme_max_chars)`:
+   - `GET /repos/{o}/{r}`. A 404 or a private repo raises `GitHubRepoNotFoundError`.
+   - `/languages`.
+   - `/readme`, base64-decoded and capped.
+   - `/commits?per_page=1`. The `Link` header's `rel="last"` page number is the commit count, and
+     that page's commit is the first one. A 409 means an empty repo.
+   - `_get` was split into `_response` so headers are readable.
+6. `app/services/coach.py`:
+   - `create_plan`: an unknown skill is refused, an already proven one gets a 409, and the same
+     skill returns the existing plan.
+   - The LLM draft gets one rewrite, with feedback listing every problem seen so far; failing
+     that, the template is used.
+   - `set_step` updates a step.
+   - `verify_repo`. When every check passes, `_prove`:
+     - adds `github` evidence;
+     - turns open Needs-you claims of that skill in draft applications to Verified;
+     - deletes a blocklist entry for the skill (new proof outweighs an old "mark false");
+     - calls the new `scout.rescore_user_jobs`, so open jobs drop the gap.
+   - Everything is audited: `plan_created`, `plan_check_failed`, `plan_verified`,
+     `skill_proven_by_repo`, `plan_deleted`.
+7. `app/services/activity.py` provides:
+   - counters: claims checked automatically (verified, inferred or blocked with no user decision),
+     claims sent to the user, unverified claims shipped (open Needs-you claims in a sent or
+     submitted application), applications sent, and plans verified or open;
+   - questions per application, the 10 most recent shown oldest first;
+   - the timeline.
+8. API:
+   - `app/api/plans.py`: `GET/POST /api/plans`, `PUT /api/plans/{id}/steps/{i}`,
+     `POST /api/plans/{id}/verify` (rate limited) and `DELETE /api/plans/{id}`. An unknown skill
+     gets a 422 in the field-error shape. `PlanOut` includes `acceptance` and `also_new`.
+   - `app/api/activity.py`: `GET /api/activity?limit=`.
+   - Schemas are in `schemas.py`; the routers are registered in `main.py`.
+9. Frontend:
+   - `components/PlanButton.tsx` (`SkillGap`): a gap chip that creates a plan and opens it. It is
+     a plain chip in Apply-link sessions.
+   - Used in `JobDetail.tsx` (Matcher panel) and `Workspace.tsx` (Skill gaps panel).
+   - `pages/Plans.tsx`:
+     - status badge and progress bar;
+     - optimistic checklist;
+     - "Also new to you";
+     - criteria with pass or fail results and reasons;
+     - repo link form, "Verify on GitHub" and delete;
+     - a 1-second LEVEL UP banner (none in Calm mode).
+   - `pages/Activity.tsx`: counters (green when 0 unverified claims were shipped), questions per
+     application bars, and a timeline with gate chips.
+   - Navigation gains "Growth plans" and "Activity", with routes in `App.tsx` and types in
+     `lib/api.ts`.
+
+### Files changed
+`CLAUDE.md`, `README.md`, `app/config.py`, `app/db/models.py`,
+`app/db/migrations/versions/0010_skill_plans.py`, `app/domain/{coach,activity}.py`,
+`app/integrations/{github,llm}.py`, `app/services/{coach,activity,scout}.py`,
+`app/api/{plans,activity,schemas}.py`, `app/main.py`, `docs/{ARCHITECTURE,BUILD_LOG,HANDOVER}.md`,
+`frontend/src/{App.tsx, components/Layout.tsx, components/PlanButton.tsx, lib/api.ts,
+pages/Activity.tsx, pages/JobDetail.tsx, pages/Plans.tsx, pages/Workspace.tsx}`,
+`tests/integration/test_plans_api.py`, `tests/unit/{test_coach_domain,test_github_repo,test_llm}.py`.
+
+### Tests (509 passing, up from 470)
+- `test_coach_domain.py` (28):
+  - plan rules, the template always valid, two extra skills allowed but not three, typography;
+  - acceptance wording;
+  - repo URLs (4 accepted, 7 refused, including `github.com.evil.example`, `..` and
+    `javascript:`);
+  - each of the four checks passing and failing;
+  - status moves and activity labels.
+- `test_github_repo.py` (4): commit count and first commit from `Link`, a single commit with the
+  README cap, an empty repo (409), and missing or private repos.
+- `test_plans_api.py` (6): a gap becomes one plan (same skill, same plan); unknown and proven
+  skills are refused; a broken draft falls back to the template; steps move the status; the full
+  qualifying-repo flow including Activity counters; plans are private.
+- `test_llm.py` (+1): fields named like schema keywords are kept.
+
+### Issues and fixes
+| Issue | Fix |
+|---|---|
+| Live: every model omitted `title` from the plan, even after the repair prompt | Root cause in `strict_json_schema` (from commit 45fe1df): it stripped the keyword `title` at every level, including a **property** called `title`. Properties are now converted by name. Test added. No earlier schema had such a field |
+| Live plans were 45 hours and needed Terraform, pandas and AWS ECS | Hours capped at 30; at most 2 other unproven skills (Git and GitHub exempt); the prompt states both plus the step length |
+| A hard "no other new skills" rule sent almost every plan to the template (Unit Testing, ETL, REST APIs counted) | Allow two, and show them to the user as "Also new to you" |
+| A rewrite fixed one problem and brought back another | Rewrite feedback lists every problem seen so far |
+| Dates read "06 June 2014" | A `_day()` helper prints "6 June 2014" |
+| SQLite returns naive datetimes; GitHub dates are aware | `coach._aware` and `plan_day` (UTC start of the plan's day) |
+| A JSON column didn't save an in-place step change | `set_step` assigns a new list |
+| Debug print hit `UnicodeEncodeError` on the Windows console (U+2011 from the model) | Only the debug script was affected; run scripts with `PYTHONIOENCODING=utf-8` |
+| ruff UP012 (`"...".encode()`) | Byte literal |
+
+### Known limits
+- A broad skill (Data Science) with a long job description can still end in the template plan
+  after two drafts. The template is valid and checkable.
+- The "fresh" check uses the plan's UTC day, so a plan made early morning in Pakistan shows the
+  previous date.
+- Plan text is generated once. A "regenerate" button would need delete and create, which works
+  already.
+
+---
+
 ## 11. Environment and tooling issues (all phases)
 
 | Issue | Fix or workaround |
@@ -701,7 +845,7 @@ test_verifier_decisions}.py`.
 
 ---
 
-## 12. Endpoint map (Phases 2 to 5)
+## 12. Endpoint map (Phases 2 to 7)
 
 ```
 GET  /api/jobs                       POST /api/jobs/fetch            POST /api/jobs/import
@@ -715,11 +859,13 @@ GET  /api/jobs/{id}/application/cover-letter.pdf POST /api/jobs/{id}/application
 POST /api/jobs/{id}/application/questions/discover | questions/paste | answers/draft
 PUT  /api/jobs/{id}/application/answers/{i}      POST .../answers/{i}/approve
 POST /api/jobs/{id}/application/submitted  (Gate 4)
+GET  /api/plans    POST /api/plans    PUT /api/plans/{id}/steps/{i}    DELETE /api/plans/{id}
+POST /api/plans/{id}/verify  (GitHub checks)          GET /api/activity?limit=
 ```
 Every state-changing request needs `X-CSRF-Token`. LLM endpoints are rate limited.
 
 Frontend routes: `/`, `/login`, `/onboarding`, `/ledger`, `/jobs`, `/jobs/:id`,
-`/jobs/:id/workspace`, `/jobs/:id/pack`.
+`/jobs/:id/workspace`, `/jobs/:id/pack`, `/plans`, `/activity`.
 
 ---
 
@@ -737,7 +883,12 @@ Frontend routes: `/`, `/login`, `/onboarding`, `/ledger`, `/jobs`, `/jobs/:id`,
    `https://job-boards.greenhouse.io/anthropic/jobs/5186067008`). In the workspace, open
    "Apply on their form": discover the questions, draft, review, and approve each answer. Then
    use the Apply Pack and "I submitted it".
-6. **Phase 7:** `.\.venv\Scripts\python -m eval.run --show-misses` prints the confusion matrices,
+6. **Phase 6:**
+   - On a job, click a skill gap chip; the Growth plans page opens on the new plan.
+   - Tick steps. Link a public repo you own, created today, naming the skill, with 3 or
+     more commits, and click "Verify on GitHub".
+   - The skill appears in the ledger (source GitHub), and Activity shows the events.
+7. **Phase 7:** `.\.venv\Scripts\python -m eval.run --show-misses` prints the confusion matrices,
    the results by kind and every miss. `--check` is the CI gate. In the workspace, a tailored
    bullet that adds "Senior" or a number the resume lacks shows a Needs-you badge.
 
@@ -750,17 +901,23 @@ Check which `.env` keys are set without printing values:
 
 ## 14. What's next
 
-1. **Phase 6: Coach and growth plans.**
-   - A required skill with no ledger support becomes one project plan: title, why, 4 to 6 steps,
-     time, acceptance criteria.
-   - GitHub repo verification checks four things: the owner, created after the plan, the skill
-     in the languages or README, and 3 or more commits.
-   - Plus the Activity screen and its counters.
-2. **Phase 7 leftovers:** the MCP server (`score_job`, `tailor_for_job`, `verify_claims`,
-   `ats_score`) and demo mode for company research.
-3. **Deploy:**
+Every phase in the spec has been built. What remains:
+1. **MCP server** (spec 10 and 7): FastMCP at `/mcp` with `score_job`, `tailor_for_job`,
+   `verify_claims` and `ats_score`.
+2. **Autofill bookmarklet** (Phase 5 stretch): fills the employer's form from approved answers by
+   label similarity, and never clicks submit.
+3. **Playwright smoke test** (spec 15.5): log in as the demo user, open a job, answer one
+   Needs-you claim, approve, and see Applied, with email mocked.
+4. **Demo mode for company research** (spec 14.4): serve cached `company_facts` only.
+5. Improvements:
+   - outcome-noun matching for metrics (meaning drift);
+   - a warning when an apply email's domain differs from the company's;
+   - per-user sending (Gmail OAuth);
+   - grow the taxonomy toward 500 skills;
+   - "Write like me".
+6. **Deploy:**
    - Do **not** copy `EMAIL_REDIRECT_TO`.
    - Set `INTERNAL_TOKEN`, `APP_ENV=production`, `LOG_JSON=true`, the public `APP_BASE_URL`, a
      fresh 48-character `SECRET_KEY` and `FORWARDED_ALLOW_IPS`.
    - Add the Google callback for the public URL.
-   - Rebuild, Deploy and check `/health`. Migration 0009 runs at startup.
+   - Rebuild, Deploy and check `/health`. Migrations 0009 and 0010 run at startup.

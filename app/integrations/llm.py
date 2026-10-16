@@ -102,8 +102,11 @@ def strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
         out = {
             key: convert(value)
             for key, value in node.items()
-            if key not in _UNCONSTRAINED_KEYWORDS and key != "$defs"
+            if key not in _UNCONSTRAINED_KEYWORDS and key not in ("$defs", "properties")
         }
+        if isinstance(node.get("properties"), dict):
+            # Property names are field names, not keywords: a field called "title" stays.
+            out["properties"] = {name: convert(sub) for name, sub in node["properties"].items()}
         if out.get("type") == "object" and "properties" in out:
             out["required"] = list(out["properties"])
             out["additionalProperties"] = False

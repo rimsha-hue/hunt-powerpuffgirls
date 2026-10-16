@@ -22,7 +22,7 @@ It finds jobs, scores the fit, tailors your CV and prepares each application, an
 | 3 | Tailor, Verifier (Verified, Inferred, Needs you), Needs-you gate, learning loop, CV PDF | Done |
 | 4 | Email apply flow: attachments, humanized email, send after approval | Done |
 | 5 | Form apply flow: Greenhouse questions, company research, Apply Pack | Done |
-| 6 | Coach and growth plans | Not started |
+| 6 | Coach growth plans for skill gaps, GitHub repo verification, Activity screen | Done |
 | 7 | Claim checker eval (numbers below), malicious job description test, CI baseline | Done; MCP server not built |
 
 ## Run locally
@@ -128,6 +128,10 @@ Review the generated file before committing (name constraints, handle existing d
 | `/api/resume`, `/api/resume/sample`, `/api/github/sync`, `/api/portfolio/sync` | Build the evidence ledger |
 | `/api/ledger` | List (search, type, source filters) and delete evidence |
 | `/api/meta/config`, `/api/meta/locations`, `/api/meta/roles` | Client config and suggestions |
+| `/api/jobs`, `/api/jobs/fetch`, `/api/jobs/import`, `/apply/{id}?t=` | Jobs, Fetch now, add a Greenhouse job by link, signed Apply links (Gate 1) |
+| `/api/jobs/{id}/tailor`, `/api/claims/{id}/decision`, `/api/jobs/{id}/application/*` | Tailored CV, Needs-you answers (Gate 2), email and form flows (Gates 3 and 4) |
+| `/api/plans`, `/api/plans/{id}/steps/{i}`, `/api/plans/{id}/verify` | Growth plans and GitHub verification |
+| `GET /api/activity` | Audit timeline and the human-gate counters |
 | `GET /docs` | OpenAPI UI (not in production) |
 
 ## Deploy (Alternate Clouds)

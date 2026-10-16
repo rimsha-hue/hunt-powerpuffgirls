@@ -16,8 +16,9 @@ own confirmation). When the system cannot prove something, it asks the user.
 - Deadline: 17 October 2026, 12:45 PM PKT. Deploy target: Alternate Clouds, one Docker container.
 - Judging: technical execution 25, usefulness 20, theme 15, creativity 15, automation depth 15,
   UX 10. Grayhat (security engineers) are judges, so security and reliability are visible.
-- Status: Phases 0 to 5 and the Phase 7 eval are done (catch rate 95.0%, false alarms 2.8% on
-  the held-out half; README "Claim checker eval"). Next: Phase 6 (Coach and growth plans).
+- Status: Phases 0 to 6 and the Phase 7 eval are done (catch rate 95.0%, false alarms 2.8% on
+  the held-out half; README "Claim checker eval"). Left: MCP server, autofill bookmarklet,
+  Playwright smoke test, then deploy. `docs/BUILD_LOG.md` section 14 has the list.
   See `docs/HANDOVER.md` for the exact state and known issues.
 
 ## 2. How to work here
@@ -157,6 +158,9 @@ normaliser with tests, suggestions endpoint if the value set is large.
   partial edit hide the rest of a statement.
 - **Metric keys are value + head noun + rate** ("1200 agent", "2000000 record/day"). If the
   key rules change, stored evidence must be recomputed by a migration (see 0009).
+- **Field names are not schema keywords.** `strict_json_schema` drops keywords like `title`
+  and `format` but must keep properties with those names (a dropped `title` field made every
+  model omit it). Test any new LLM schema against a real provider once.
 - **Don't write regexes through Python scripts with non-raw strings** (`\b` becomes a
   backspace). Use the editor tools for code with backslashes.
 - **Rate limiting** uses the `limits` library through a dependency (`api/ratelimit.py`), not

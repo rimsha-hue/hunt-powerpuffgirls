@@ -4,6 +4,7 @@ import { motion } from 'motion/react'
 import { Link, useParams } from 'react-router'
 import { Highlighted } from '../components/Highlighted'
 import { MethodBadge, ScoreChip } from '../components/JobBits'
+import { SkillGap } from '../components/PlanButton'
 import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { api, json, type Job, type JobDetail as Detail, type JobKeyword } from '../lib/api'
 import { useCalm } from '../lib/calm'
@@ -219,7 +220,12 @@ export default function JobDetail() {
             {j.missing_skills.length > 0 && (
               <>
                 <p className="mt-3 mb-1 text-sm font-semibold">Skills your ledger can't prove yet</p>
-                <p className="text-sm">{j.missing_skills.join(', ')}</p>
+                <p className="mb-2 text-xs">Click one for a growth plan from the Coach.</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {j.missing_skills.map((skill) => (
+                    <SkillGap key={skill} skill={skill} jobId={j.id} />
+                  ))}
+                </div>
               </>
             )}
           </Panel>

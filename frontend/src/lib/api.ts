@@ -374,3 +374,78 @@ export type ClaimAction =
   | { action: 'edit'; text: string }
   | { action: 'remove' }
   | { action: 'false' }
+
+// ---- Coach and growth plans (Phase 6) ----
+
+export type PlanStatus = 'open' | 'in_progress' | 'verified'
+
+export interface PlanStep {
+  text: string
+  done: boolean
+}
+
+export interface PlanCheck {
+  name: 'owner' | 'fresh' | 'skill' | 'commits'
+  passed: boolean
+  detail: string
+}
+
+export interface Plan {
+  id: number
+  skill: string
+  title: string
+  why: string
+  steps: PlanStep[]
+  hours: number
+  status: PlanStatus
+  written_by: 'llm' | 'template'
+  acceptance: string[]
+  /** Other skills the plan touches that the ledger doesn't prove yet. */
+  also_new: string[]
+  repo_url: string | null
+  checks: PlanCheck[]
+  job_id: number | null
+  job_title: string | null
+  created_at: string
+  verified_at: string | null
+}
+
+export interface PlanVerify {
+  plan: Plan
+  verified: boolean
+}
+
+// ---- Activity (Phase 6) ----
+
+export interface ActivityCounters {
+  checked_automatically: number
+  sent_to_you: number
+  unverified_shipped: number
+  applications_sent: number
+  plans_verified: number
+  plans_open: number
+}
+
+export interface ActivityAsked {
+  application_id: number
+  job_title: string
+  company: string
+  questions: number
+  created_at: string
+}
+
+export interface ActivityEvent {
+  id: number
+  actor: string
+  action: string
+  label: string
+  gate: number | null
+  entity: string
+  created_at: string
+}
+
+export interface Activity {
+  counters: ActivityCounters
+  questions: ActivityAsked[]
+  events: ActivityEvent[]
+}
