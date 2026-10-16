@@ -1,0 +1,142 @@
+# Handover: state of Power Hunt (16 October 2026)
+
+Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC.md` (features).
+
+## 1. Where things stand
+
+| Phase | Scope (spec section 19) | State |
+|---|---|---|
+| 0 | Skeleton, Dockerfile, CI, health | **Done**. Deploy blocked by the platform (see section 4). |
+| 1 | Auth, demo seed, resume parsing, evidence ledger, GitHub ingestion, Onboarding and Ledger screens | **Done**, plus portfolio ingestion, Google sign-in, input guardrails. AI extraction weak (issue 1). |
+| 2 | Scout with fallbacks, dedupe, Matcher, ATS scorer, Classifier, Jobs screen, digest email with signed Apply links | **Next.** Not started. |
+| 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | Not started |
+| 4 | Email apply flow (attachments, humanized email, SMTP send) | Not started |
+| 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | Not started |
+| 6 | Coach and growth plans with GitHub verification; Activity screen | Not started |
+| 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | Not started |
+
+Cut line if time runs short: phases 0 to 4 and the eval first (spec section 19).
+
+Merged PRs: #1 skeleton, #2 port, #3 Phase 1, #4 PDF/portfolio fixes, #5 Google sign-in + theme,
+#6 guardrails + config hardening + Neon dev setup. Tests: 282 passing; CI green (ruff, mypy,
+pytest, bandit, pip-audit, gitleaks, frontend lint/build/audit, Docker smoke test).
+
+## 2. Running it
+
+See README "Run locally". Short version: `docker compose up --build` (API on :8000 against Neon,
+reads `.env`), and `npm run dev` in `frontend/` (:5173, hot reload). Docker Desktop must be
+running. Node 22 is installed per-user on the owner's machine.
+
+Demo account: email and password are `DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD` in `.env`; created
+automatically at startup. The demo resume is fictional (Ayesha Khan, `fixtures/demo_resume.docx`).
+
+## 3. Known issues, most important first
+
+1. **AI extraction is weak (fix first in Phase 2 or before).** Probed on 16 Oct with the demo
+   resume and `LLM_MAX_TOKENS=2048`:
+   - `groq/openai/gpt-oss-120b` (primary) works but returns only about 8 facts: it is a
+     reasoning model and its reasoning consumes the output budget.
+   - `groq/openai/gpt-oss-20b` (fallback) returns `BadRequestError` from Groq for this request.
+   - `gemini/gemini-2.5-flash` returns JSON that fails the `ExtractionResult` schema even after
+     the repair retry.
+   Effect: roles, employers and certifications are often missing; code extraction still works.
+   Recommended fix: raise `LLM_MAX_TOKENS` (8192) and set reasoning effort low for gpt-oss;
+   extract per section (experience, projects, education) instead of the whole resume at once;
+   use JSON-schema structured output where the provider supports it (LiteLLM
+   `response_format` with a schema); log the provider error message (not just the type) at
+   debug level. Script used for probing: see "LLM probe" in section 6.
+2. **Deploy blocked by Alternate Clouds' builder**: `volume_placement_capacity` /
+   "rebuild returned no job", even on a recreated service. Not our code (the image builds in CI
+   and locally). Retry, or raise it with the organisers. Port 8000; set variables per README.
+3. **Health checks take about 1 second** from Pakistan to Neon (US East, Ohio). Fine for now; a
+   deploy in US East will be fast. Don't lower `DB_HEALTH_TIMEOUT_SECONDS` below 5.
+4. Skill taxonomy has 370 skills; the spec asks for about 500. Grow it as Phase 2 job
+   descriptions reveal gaps (`data/skills_taxonomy.json`, keep tests green).
+5. Main JS bundle is about 160 KB gzipped (React + Motion). Acceptable; could use Motion's
+   `LazyMotion` later.
+6. `.env.bak` on the owner's machine holds a copy of the secrets (git-ignored). Delete after
+   confirming `.env` works.
+7. Uploaded resume files are not stored (only extracted lines). Intentional for privacy; Phase 3
+   renders CVs from structured data, not the original file.
+
+## 4. Deployment checklist (Alternate Clouds)
+
+1. Service from `rimsha-hue/hunt-powerpuffgirls`, branch `main`, root `.`, build/start commands
+   empty (the Dockerfile is used).
+2. Ports: container `8000`.
+3. Variables: copy from `.env`, but set `APP_ENV=production`, `LOG_JSON=true`, `APP_BASE_URL` to
+   the public URL, a fresh 48-character `SECRET_KEY`, and `FORWARDED_ALLOW_IPS` to the platform's
+   proxy addresses (ask the platform; never `*`). Tick "Secret" for every key.
+4. Add the production callback `https://<public-url>/api/auth/google/callback` in Google Cloud
+   if Google sign-in is configured.
+5. Rebuild, then Deploy, then open `/health`.
+
+## 5. Phase 2 plan (next)
+
+Spec sections 3 (Flow A), 6 (ATS), 11 (agents), 12 (jobs table), 14 (fallbacks). Suggested order:
+
+1. `jobs`, `apply_tokens`, `notifications` tables (migration 0005). Status transitions in one
+   function (`domain/status.py`, spec section 12).
+2. Job sources behind one interface (`integrations/jobs/`): JSearch (RapidAPI key is in `.env`),
+   Remotive and Arbeitnow (no key), recorded fixtures for `DEMO_MODE`. Normalise to one schema.
+   Search uses profile roles and location keys (city name + country code from `LocationIndex`).
+3. Dedupe: source id first, then normalised hash of company + title + location.
+4. ATS scorer (`domain/ats.py`): keyword set frozen per job (taxonomy + YAKE, section weights
+   2/1), coverage synonym-aware, format checks, `round(100 * (0.85 * coverage + 0.15 * format))`.
+   Property test: the score never rises from keywords the ledger can't support.
+5. Matcher (match score, missing skills) and Classifier (apply method email/form/unknown,
+   apply email/URL, required attachments).
+6. Scheduler: APScheduler in process, every `SCOUT_INTERVAL_HOURS`, plus a protected
+   `POST /internal/run-scout`. Report scheduler state in `/health`.
+7. Signed Apply links: 32-byte random tokens, stored hashed, single use, 72 h, bound to user and
+   job; a token without a session creates a session scoped to that job (`scope_job_id` already
+   exists and `get_full_principal` already rejects scoped sessions elsewhere).
+8. Digest email via an `EmailProvider` interface (Gmail SMTP with app password; SMTP keys not in
+   `.env` yet). Job cards: title, company, match, ATS, apply method, Apply now.
+9. Jobs screen: cards with match, ATS before, method badge, posted date, Apply now; filters;
+   "Fetch now" with the speed-lines animation (Calm mode aware).
+10. Tests with `respx` for every source and the SMTP provider mocked.
+
+Keys still needed from the owner: `SMTP_USER`, `SMTP_APP_PASSWORD` (Gmail app password),
+optionally `GITHUB_TOKEN`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
+
+## 6. Useful snippets
+
+LLM probe (prints model, OK or error type; never the key):
+
+```python
+import asyncio, litellm
+from app.config import get_settings
+from app.integrations.llm import build_llm
+async def main():
+    for spec in build_llm(get_settings()).models:
+        try:
+            r = await litellm.acompletion(model=spec.model, api_key=spec.api_key,
+                messages=[{"role": "user", "content": 'Reply with {"ok": true}'}],
+                response_format={"type": "json_object"}, max_tokens=64, timeout=30)
+            print(spec.model, "OK", r.choices[0].message.content[:40])
+        except Exception as exc:
+            print(spec.model, type(exc).__name__)
+asyncio.run(main())
+```
+
+Check which `.env` keys are set without printing values:
+
+```powershell
+.\.venv\Scripts\python -c "from dotenv import dotenv_values as d; print(sorted(k for k,v in d('.env').items() if v))"
+```
+
+## 7. Decisions log
+
+| Decision | Why |
+|---|---|
+| Product name "Power Hunt"; Powerpuff Girls characters in videos | Owner's choice; logo and palette are original |
+| Neon Postgres for dev and prod; SQLite only in tests | One database behaviour everywhere; tests stay offline |
+| Rate limiting with `limits` + dependency instead of slowapi | Limits and storage must come from per-app settings |
+| Locations via GeoNames keys, never free text | Jobs search and matching need exact places; rejects nonsense |
+| Degrees only from Education, never future tense | A mentioned PhD must not verify a fabricated one |
+| Invisible PDF text ignored | Evidence must be visible to a human reader |
+| Resume files not stored | Privacy; CVs are rendered from structured data |
+| Server-side sessions instead of JWT | Revocable (logout, delete my data), CSRF token per session |
+| GeoNames index loads in the background | App ready immediately; only lookups wait |
+| One-line commit messages, no AI attribution | Owner's rule |
