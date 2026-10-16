@@ -1,8 +1,9 @@
 """Async database engine and session factory."""
 
 from collections.abc import AsyncIterator
+from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -13,7 +14,16 @@ from sqlalchemy.ext.asyncio import (
 
 def create_engine(database_url: str) -> AsyncEngine:
     if database_url.startswith("sqlite"):
-        return create_async_engine(database_url)
+        engine = create_async_engine(database_url)
+
+        # SQLite ignores ON DELETE CASCADE unless foreign keys are enabled per connection.
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_foreign_keys(dbapi_conn: Any, _record: Any) -> None:
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        return engine
     # Neon's free tier suspends idle compute; pre_ping avoids handing out dead connections.
     return create_async_engine(database_url, pool_pre_ping=True, pool_size=5, max_overflow=5)
 

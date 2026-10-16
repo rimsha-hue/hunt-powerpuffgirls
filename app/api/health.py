@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 
 DB_PING_TIMEOUT_SECONDS = 3.0
 
-CheckState = Literal["ok", "down", "not_configured", "not_started"]
+CheckState = Literal["ok", "down", "configured", "not_configured", "not_started"]
 
 
 class HealthReport(BaseModel):
@@ -37,10 +37,9 @@ async def _database_state(request: Request) -> CheckState:
 
 @router.get("/health", response_model=HealthReport)
 async def health(request: Request, response: Response) -> HealthReport:
-    settings = request.app.state.settings
     database = await _database_state(request)
-    # The LLM client and scheduler arrive in later phases; report honestly until then.
-    llm: CheckState = "not_started" if settings.groq_api_key else "not_configured"
+    # No live LLM call here: probing a free-tier quota on every health check would waste it.
+    llm: CheckState = "configured" if request.app.state.llm.configured else "not_configured"
     report = HealthReport(
         status="ok" if database == "ok" else "degraded",
         version=__version__,

@@ -22,11 +22,24 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./power_hunt.db"
 
-    # LLM (wired in Phase 3; declared now so the Variables tab can be filled once).
+    # Sessions and auth.
+    session_days: int = Field(default=7, ge=1, le=30)
+
+    # Demo account for judges. Credentials live only in env vars, never in the repo.
+    demo_user_email: str | None = None
+    demo_user_password: SecretStr | None = None
+    demo_github_username: str | None = None
+
+    # LLM. Model names are LiteLLM ids without the provider prefix for Groq.
     groq_api_key: SecretStr | None = None
     llm_primary_model: str = "llama-3.3-70b-versatile"
     llm_fallback_model: str = "llama-3.1-8b-instant"
     gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    llm_timeout_seconds: float = Field(default=30.0, gt=0)
+    llm_max_tokens: int = Field(default=2048, ge=64)
+
+    max_upload_mb: int = Field(default=5, ge=1, le=20)
 
     # External services (later phases).
     rapidapi_key: SecretStr | None = None
