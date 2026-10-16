@@ -5,7 +5,7 @@ Claims on the user's blocklist are removed from the text automatically. Confirmi
 to the ledger as user-confirmed evidence, so the same claim is Verified on the next application.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -146,6 +146,17 @@ def _find(
     ]
 
 
+def _union(spans: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Overlapping spans merged, in text order."""
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 def _route(
     claim: FoundClaim,
     block: Block,
@@ -236,8 +247,9 @@ async def verify(
         blocked = [(c, r, s) for c, r, s in routed if r.bucket == "blocked"]
         if blocked:
             text = block.text
-            for claim, _, _ in sorted(blocked, key=lambda item: -item[0].start):
-                text = replace_span(text, claim.start, claim.end, "")
+            # Claims may overlap (an LLM claim around a code claim), so cut merged ranges.
+            for start, end in reversed(_union((c.start, c.end) for c, _, _ in blocked)):
+                text = replace_span(text, start, end, "")
             block = out[i] = replace(block, text="" if too_short(text) else text)
             drafts.extend(
                 Draft(i, replace(c, start=0, end=0), "blocked", r.normalized, s, block.line_id)
@@ -359,6 +371,7 @@ def remove(
 ) -> None:
     """Cuts the claim's words from its bullet. A bullet left too short is dropped with its claims."""
     block = blocks[claim.block_index]
+    old = (claim.span_start, claim.span_end)
     text = replace_span(block.text, claim.span_start, claim.span_end, "")
     if too_short(text):
         blocks[claim.block_index] = replace(block, text="")
@@ -370,18 +383,41 @@ def remove(
                 other.bucket, other.user_decision, other.decided_at = "removed", "removed", now
     else:
         blocks[claim.block_index] = replace(block, text=text)
-        _relocate(blocks[claim.block_index].text, claim, claims)
+        delta = len(text) - len(block.text)
+        _relocate(blocks[claim.block_index].text, claim, claims, old=old, delta=delta)
     claim.bucket, claim.user_decision, claim.decided_at = "removed", decision, now
 
 
-def _relocate(text: str, changed: Claim, claims: Sequence[Claim]) -> None:
-    """After an edit, find each remaining claim of the bullet again by its words."""
+def _relocate(
+    text: str, changed: Claim, claims: Sequence[Claim], *, old: tuple[int, int], delta: int
+) -> None:
+    """After the words at `old` were replaced (the text grew by `delta`), find each remaining claim
+    of the bullet again. Claims inside the replaced words are gone. A claim that overlapped them
+    ("Senior backend and AI engineer" when "AI" changed) keeps its place with its new words and
+    goes back to Needs you, so changing part of a statement never lets the rest through unseen."""
+    start, end = old
     cursor = 0
     for other in sorted(
         (c for c in claims if c.block_index == changed.block_index and c.id != changed.id),
         key=lambda c: c.span_start,
     ):
         if other.bucket in ("blocked", "removed"):
+            continue
+        if other.span_start < end and start < other.span_end:
+            if start <= other.span_start and other.span_end <= end:
+                other.bucket, other.user_decision = "removed", "removed"
+                continue
+            new_start = min(other.span_start, start)
+            new_end = max(other.span_end, end) + delta
+            words = text[new_start:new_end]
+            if not words.strip():
+                other.bucket, other.user_decision = "removed", "removed"
+                continue
+            new_start += len(words) - len(words.lstrip())
+            new_end -= len(words) - len(words.rstrip())
+            other.span_start, other.span_end = new_start, new_end
+            other.text = text[new_start:new_end][:500]
+            other.bucket, other.user_decision, other.decided_at = "needs_you", None, None
             continue
         index = text.find(other.text, cursor)
         if index < 0:
@@ -444,9 +480,10 @@ async def edit(
     block = blocks[claim.block_index]
     text = block.text[: claim.span_start] + new_text + block.text[claim.span_end :]
     blocks[claim.block_index] = replace(block, text=text)
+    old = (claim.span_start, claim.span_end)
     claim.span_end = claim.span_start + len(new_text)
     claim.text = new_text[:500]
-    _relocate(text, claim, claims)
+    _relocate(text, claim, claims, old=old, delta=len(text) - len(block.text))
     [sim] = await similarity.scores([(text, block.original)])
     found = FoundClaim(new_text, claim.type, claim.span_start, claim.span_end, claim.origin)  # type: ignore[arg-type]
     routing = route(

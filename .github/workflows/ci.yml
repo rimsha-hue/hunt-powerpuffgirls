@@ -25,12 +25,16 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: Lint
         run: |
-          ruff check app tests
-          ruff format --check app tests
+          ruff check app tests eval
+          ruff format --check app tests eval
       - name: Type check
-        run: mypy app
+        run: mypy app eval
       - name: Tests
         run: pytest --cov=app --cov-report=term-missing
+      # Fails if the shipped INFER_THRESHOLD catches fewer fabrications or raises more false
+      # alarms than eval/baseline.json records. Downloads the embedding model (about 70 MB).
+      - name: Claim eval baseline
+        run: python -m eval.run --check
       - name: Bandit
         run: bandit -c pyproject.toml -r app -ll
       - name: pip-audit

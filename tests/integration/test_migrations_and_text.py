@@ -1,3 +1,6 @@
+import sqlite3
+from pathlib import Path
+
 from alembic import command
 from alembic.config import Config
 
@@ -50,3 +53,36 @@ def test_migrations_match_the_models(database_url: str) -> None:
     cfg = Config(str(ROOT_DIR / "alembic.ini"))
     cfg.attributes["database_url"] = database_url
     command.check(cfg)
+
+
+def test_metric_keys_are_recomputed_by_head_noun(tmp_path: Path) -> None:
+    """0009: stored metrics get the new unit rule; rows that become equal are merged."""
+    path = tmp_path / "metrics.db"
+    cfg = Config(str(ROOT_DIR / "alembic.ini"))
+    cfg.attributes["database_url"] = f"sqlite+aiosqlite:///{path.as_posix()}"
+    command.upgrade(cfg, "0008")
+    now = "2026-10-17 00:00:00"
+    rows = [
+        ("used by 1,200 support agents", "1200 support", "resume"),
+        ("2M records daily", "2000000 record", "resume"),
+        ("2M daily records", "2000000 daily", "resume"),  # becomes a duplicate of the row above
+        ("1,200 support agents", "1200 support", "user_confirmed"),
+    ]
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "INSERT INTO users (id, email, name, password_hash, created_at) VALUES (1, 'a@b.c', '', '', ?)",
+            (now,),
+        )
+        db.executemany(
+            "INSERT INTO evidence (user_id, claim_text, type, normalized_value, source, source_ref,"
+            " confirmed_by, confidence, created_at) VALUES (1, ?, 'metric', ?, ?, 'x', 'system', 1, ?)",
+            [(*row, now) for row in rows],
+        )
+    command.upgrade(cfg, "0009")
+    with sqlite3.connect(path) as db:
+        stored = db.execute("SELECT normalized_value, source FROM evidence ORDER BY id").fetchall()
+    assert stored == [
+        ("1200 agent", "resume"),
+        ("2000000 record/day", "resume"),
+        ("1200 agent", "user_confirmed"),
+    ]

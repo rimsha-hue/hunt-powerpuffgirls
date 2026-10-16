@@ -89,11 +89,35 @@ _CURRENCY_RE = re.compile(
 _GPA_RE = re.compile(r"(?<![\w.])(\d\.\d{1,2})\s*/\s*(4(?:\.0+)?|5(?:\.0+)?|10(?:\.0+)?)(?![\d.])")
 _MULT_RE = re.compile(rf"(?<![\w.])({_NUM})\s*x(?![a-z0-9])", re.I)
 _COUNT_RE = re.compile(
-    rf"(?<![\w.$€£/])({_NUM})(\+)?\s*(k|thousand|mn|million|m|bn|billion|b)?(?![\w%.])\+?(?:\s+([A-Za-z][A-Za-z\-]{{1,24}}))?",
+    rf"(?<![\w.$€£/])({_NUM})(\+)?\s*(k|thousand|mn|million|m|bn|billion|b)?(?![\w%.])\+?",
     re.I,
 )
 _YEAR_RANGE = range(1950, 2100)
 _NOUN_STOP = STOPWORDS | {"times", "more", "less", "than", "faster", "slower"}
+_UNIT_WORD = re.compile(r"\s+([A-Za-z][A-Za-z\-]{1,24})")
+# A count's noun is looked for among this many words after it: "1,200 support agents".
+MAX_UNIT_WORDS = 3
+# A rate is part of the unit: "2M records daily" and "2M records a day" match each other, not
+# "2M records per second".
+_RATE_WORDS = {
+    "hourly": "hour",
+    "daily": "day",
+    "nightly": "day",
+    "weekly": "week",
+    "monthly": "month",
+    "quarterly": "quarter",
+    "yearly": "year",
+    "annually": "year",
+    "annual": "year",
+}
+_PERIOD = r"second|sec|minute|min|hour|hr|day|night|week|month|quarter|year"
+_RATE_PHRASE = re.compile(
+    rf"\s+(?:per|a|an|each|every)\s+({_PERIOD})s?\b|\s*/\s*({_PERIOD})\b", re.I
+)
+_PERIOD_NAMES = {"sec": "second", "min": "minute", "hr": "hour", "night": "day"}
+# "Tripled throughput" states 3x as surely as "3x throughput" does.
+_WORD_MULT_RE = re.compile(r"\b(doubl|tripl|quadrupl)(?:e|ed|es|ing)\b", re.I)
+_WORD_MULT = {"doubl": 2.0, "tripl": 3.0, "quadrupl": 4.0}
 
 
 @dataclass(frozen=True)
@@ -137,6 +161,39 @@ def _singular(word: str) -> str:
     return word
 
 
+def _is_plural(word: str) -> bool:
+    word = word.lower()
+    return len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us", "is"))
+
+
+def _unit_noun(text: str, pos: int) -> tuple[str, int] | None:
+    """(unit, end) for what a count measures. Modifiers between the number and the noun are
+    skipped: "1,200 support agents" and "2M daily records" count agents and records, the same as
+    "1,200 agents" and "2M records daily". The first plural among the next few words wins, else
+    the first word; a stopword ends the phrase. A rate joins the unit: "record/day"."""
+    words: list[re.Match[str]] = []
+    for _ in range(MAX_UNIT_WORDS):
+        m = _UNIT_WORD.match(text, pos)
+        if m is None or m.group(1).lower() in _NOUN_STOP:
+            break
+        words.append(m)
+        pos = m.end()
+    nouns = [w for w in words if w.group(1).lower() not in _RATE_WORDS]
+    if not nouns:
+        return None
+    pick = next((w for w in nouns if _is_plural(w.group(1))), nouns[0])
+    unit, end = _singular(pick.group(1)), pick.end()
+    rate = next((w for w in words if w.group(1).lower() in _RATE_WORDS), None)
+    if rate is not None:
+        end = max(end, rate.end())
+        return f"{unit}/{_RATE_WORDS[rate.group(1).lower()]}", end
+    phrase = _RATE_PHRASE.match(text, end)
+    if phrase is not None:
+        period = (phrase.group(1) or phrase.group(2)).lower()
+        return f"{unit}/{_PERIOD_NAMES.get(period, period)}", phrase.end()
+    return unit, end
+
+
 def find_quantities(text: str, include_years: bool = False) -> list[Quantity]:
     """Every number in `text` with its unit. Calendar years are skipped unless asked for."""
     found: list[Quantity] = []
@@ -161,8 +218,10 @@ def find_quantities(text: str, include_years: bool = False) -> list[Quantity]:
         add(Quantity(_to_float(m.group(2)) * mult, unit, m.group(0), m.start(), m.end()))
     for m in _MULT_RE.finditer(text):
         add(Quantity(_to_float(m.group(1)), "x", m.group(0), m.start(), m.end()))
+    for m in _WORD_MULT_RE.finditer(text):
+        add(Quantity(_WORD_MULT[m.group(1).lower()], "x", m.group(0), m.start(), m.end()))
     for m in _COUNT_RE.finditer(text):
-        raw, suffix, noun = m.group(1), m.group(3), m.group(4)
+        raw, suffix = m.group(1), m.group(3)
         value = _to_float(raw) * _MULTIPLIERS.get((suffix or "").lower(), 1.0)
         is_year = (
             not suffix
@@ -178,9 +237,9 @@ def find_quantities(text: str, include_years: bool = False) -> list[Quantity]:
         end = m.end(3) if suffix else m.end(1)
         if m.group(2):
             end = max(end, m.end(2))
-        if noun and noun.lower() not in _NOUN_STOP:
-            unit = _singular(noun)
-            end = m.end(4)
+        noun = _unit_noun(text, end if text[end : end + 1] != "+" else end + 1)
+        if noun is not None:
+            unit, end = noun
         if is_year:
             unit = "year-date"
         add(Quantity(value, unit, text[m.start() : end], m.start(), end))

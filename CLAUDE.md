@@ -3,6 +3,7 @@
 Operating guide for Claude Code on this repository. Read this first, then `docs/HANDOVER.md`
 (current state and next steps), `docs/ARCHITECTURE.md` (how the code fits together) and
 `docs/SPEC.md` (the original product and engineering spec, the source of truth for features).
+`docs/BUILD_LOG.md` records how phases 0 to 5 were built: steps, files, tests, issues, Docker notes.
 
 ## 1. What this is
 
@@ -15,8 +16,8 @@ own confirmation). When the system cannot prove something, it asks the user.
 - Deadline: 17 October 2026, 12:45 PM PKT. Deploy target: Alternate Clouds, one Docker container.
 - Judging: technical execution 25, usefulness 20, theme 15, creativity 15, automation depth 15,
   UX 10. Grayhat (security engineers) are judges, so security and reliability are visible.
-- Status: Phases 0 to 5 done. Next: the claim eval and its README numbers (Phase 7, required
-  by the cut line), then Phase 6 (Coach and growth plans) if time allows.
+- Status: Phases 0 to 5 and the Phase 7 eval are done (catch rate 95.0%, false alarms 2.8% on
+  the held-out half; README "Claim checker eval"). Next: Phase 6 (Coach and growth plans).
   See `docs/HANDOVER.md` for the exact state and known issues.
 
 ## 2. How to work here
@@ -44,10 +45,11 @@ Windows machine, PowerShell. Python venv at `.venv`. Node 22 is installed per-us
 
 ```powershell
 # Backend checks (what CI runs)
-.\.venv\Scripts\ruff format app tests scripts
-.\.venv\Scripts\ruff check app tests scripts
-.\.venv\Scripts\mypy app
+.\.venv\Scripts\ruff format app tests eval scripts
+.\.venv\Scripts\ruff check app tests eval scripts
+.\.venv\Scripts\mypy app eval
 .\.venv\Scripts\pytest -q --timeout=60
+.\.venv\Scripts\python -m eval.run --check     # claim eval vs eval/baseline.json (--show-misses)
 
 # Dev stack: API in Docker against Neon (reads .env), reloads on app/ changes
 docker compose up --build        # http://localhost:8000
@@ -57,7 +59,7 @@ cd frontend; npx oxlint          # frontend lint
 
 # Database migrations (alembic autogenerate, then review the file by hand)
 $env:DATABASE_URL="sqlite+aiosqlite:///./scratch.db"; .\.venv\Scripts\alembic upgrade head
-.\.venv\Scripts\alembic revision --autogenerate -m "what changed" --rev-id 0005
+.\.venv\Scripts\alembic revision --autogenerate -m "what changed" --rev-id 0010
 
 # Add settings declared in app/config.py to .env without losing values (backs up to .env.bak)
 .\.venv\Scripts\python scripts\sync_env.py
@@ -147,6 +149,16 @@ normaliser with tests, suggestions endpoint if the value set is large.
   spends `SCOUT_MAX_QUERIES` per user; the scheduler's first run waits a full interval so dev
   reloads don't spend quota. Remotive ignores its `search` parameter and Arbeitnow has none, so
   relevance is decided in code (`domain/jobs.py`).
+- **Run the claim eval after any change to `domain/claims.py`, `domain/normalize.py`,
+  `services/verifier.py` or the taxonomy.** It found four Verifier bugs the unit tests missed.
+  If you change the rules on purpose, rerun with `--write-baseline` and say why in the PR.
+- **Claims may overlap** (an LLM claim around a code claim). Editing or removing part of a
+  statement sends the claim around it back to Needs you (`verifier._relocate`); never let a
+  partial edit hide the rest of a statement.
+- **Metric keys are value + head noun + rate** ("1200 agent", "2000000 record/day"). If the
+  key rules change, stored evidence must be recomputed by a migration (see 0009).
+- **Don't write regexes through Python scripts with non-raw strings** (`\b` becomes a
+  backspace). Use the editor tools for code with backslashes.
 - **Rate limiting** uses the `limits` library through a dependency (`api/ratelimit.py`), not
   slowapi (slowapi can't take per-app settings). Client IP comes from uvicorn, which trusts
   `X-Forwarded-For` only from `FORWARDED_ALLOW_IPS`.

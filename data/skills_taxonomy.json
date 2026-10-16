@@ -186,7 +186,7 @@
     {"name": "Prompt Engineering", "aliases": ["prompt design"], "category": "ai"},
     {"name": "Retrieval-Augmented Generation", "aliases": ["RAG", "retrieval augmented generation"], "category": "ai"},
     {"name": "AI Agents", "aliases": ["agentic AI", "LLM agents", "autonomous agents", "multi-agent systems", "AI agent"], "category": "ai"},
-    {"name": "Fine-Tuning", "aliases": ["fine tuning", "finetuning", "LoRA", "QLoRA", "PEFT"], "category": "ai"},
+    {"name": "Fine-Tuning", "aliases": ["fine tuning", "finetuning", "fine-tuned", "fine tuned", "fine-tune", "finetuned", "LoRA", "QLoRA", "PEFT"], "category": "ai"},
     {"name": "Embeddings", "aliases": ["text embeddings", "vector embeddings"], "category": "ai"},
     {"name": "Semantic Search", "aliases": [], "category": "ai"},
     {"name": "LangChain", "aliases": [], "category": "ai"},

@@ -109,14 +109,27 @@ function ClaimMark({ claim, text, fresh }: { claim: Claim; text: string; fresh: 
   )
 }
 
+/** Claims can overlap ("Senior backend and AI engineer" around the skill "AI"). Only one badge fits
+ * a stretch of text, so a Needs-you claim wins, then the longer claim; the rest stay in the panel. */
+function marksToShow(claims: Claim[], length: number): Claim[] {
+  const candidates = claims
+    .filter((c) => isShown(c.bucket) && c.span_end > c.span_start && c.span_end <= length)
+    .sort(
+      (a, b) =>
+        Number(b.bucket === 'needs_you') - Number(a.bucket === 'needs_you') ||
+        b.span_end - b.span_start - (a.span_end - a.span_start),
+    )
+  const kept: Claim[] = []
+  for (const claim of candidates) {
+    if (!kept.some((k) => claim.span_start < k.span_end && k.span_start < claim.span_end)) kept.push(claim)
+  }
+  return kept.sort((a, b) => a.span_start - b.span_start)
+}
+
 function BlockText({ block, claims, fresh }: { block: CvBlock; claims: Claim[]; fresh: boolean }) {
-  const shown = claims
-    .filter((c) => isShown(c.bucket) && c.span_end > c.span_start)
-    .sort((a, b) => a.span_start - b.span_start)
   const parts: ReactNode[] = []
   let cursor = 0
-  for (const claim of shown) {
-    if (claim.span_start < cursor || claim.span_end > block.text.length) continue
+  for (const claim of marksToShow(claims, block.text.length)) {
     parts.push(block.text.slice(cursor, claim.span_start))
     parts.push(
       <ClaimMark key={claim.id} claim={claim} text={block.text.slice(claim.span_start, claim.span_end)} fresh={fresh} />,

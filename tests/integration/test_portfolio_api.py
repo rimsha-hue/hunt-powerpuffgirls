@@ -96,7 +96,7 @@ class TestPortfolioSync:
         assert jina.called
         assert jina.calls.last.request.headers["host"] == "r.jina.ai"
         values = {(f["type"], f["normalized_value"]) for f in body["facts"]}
-        assert {("skill", "langchain"), ("skill", "qdrant"), ("metric", "1200 support")} <= values
+        assert {("skill", "langchain"), ("skill", "qdrant"), ("metric", "1200 agent")} <= values
         assert not any("**" in f["claim_text"] or "](" in f["claim_text"] for f in body["facts"])
 
     def test_non_public_hosts_are_refused_when_saved(

@@ -1,6 +1,6 @@
 # Architecture
 
-How the code fits together today (end of Phase 5). For the full product spec see `SPEC.md`.
+How the code fits together today (end of Phase 7 eval). For the full product spec see `SPEC.md`.
 
 ## Runtime shape
 
@@ -93,13 +93,14 @@ app/
   db/
     models.py        users, profiles, auth_sessions, resume_lines, evidence, claim_blocklist, audit
     session.py       Engine factory, DatabaseProbe, ping
-    migrations/      Alembic (0001 to 0008)
+    migrations/      Alembic (0001 to 0009)
 frontend/src/
   pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail, Workspace, ApplyPack (app pages are lazy-loaded)
   components/        Layout (nav, Calm mode), Logo, ChipInput (combobox), FactList, Toast, ui
   lib/               api client (CSRF, field errors), session, config, calm, toast, cx
 data/                skills_taxonomy.json, job_titles.json
-fixtures/            demo_resume.docx, demo_profile.json
+eval/                Claim checker eval: claims.jsonl, ledger.json, run.py, baseline.json
+fixtures/            demo_resume.docx, demo_profile.json, recorded_jobs.json, malicious_job.json
 scripts/             start.sh, sync_env.py, make_demo_resume.py
 tests/               unit/ (domain, integrations), integration/ (API end to end on SQLite)
 ```

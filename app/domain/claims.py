@@ -182,18 +182,37 @@ def clause_around(text: str, start: int, end: int) -> str:
     return text[left:right].strip()
 
 
+def _overlaps(a: FoundClaim, b: FoundClaim) -> bool:
+    return a.start < b.end and b.start < a.end
+
+
+def _covered(claim: FoundClaim, code: Iterable[FoundClaim]) -> bool:
+    """True when code claims already hold every content word of the claim."""
+    chars = list(claim.text)
+    for k in code:
+        for i in range(max(k.start, claim.start), min(k.end, claim.end)):
+            chars[i - claim.start] = " "
+    return not content_tokens("".join(chars))
+
+
 def merge(claims: Iterable[FoundClaim]) -> list[FoundClaim]:
-    """Non-overlapping claims in text order. Code claims win over LLM claims for the same words;
-    otherwise the earlier, then the longer, claim is kept."""
-    ordered = sorted(claims, key=lambda c: (c.origin != "code", c.start, -(c.end - c.start)))
-    kept: list[FoundClaim] = []
-    for claim in ordered:
-        if claim.end <= claim.start:
+    """Claims in text order. Code claims never overlap each other (the earlier, then the longer,
+    wins). An LLM claim is kept unless code claims cover all its words or another LLM claim took
+    its place: "Senior backend and AI engineer" says more than the skill "AI" inside it, so both
+    are checked; an LLM quote of "40%" adds nothing to the code claim "40%"."""
+    claims = [c for c in claims if c.end > c.start]
+    ordered = sorted(claims, key=lambda c: (c.start, -(c.end - c.start)))
+    code: list[FoundClaim] = []
+    for claim in (c for c in ordered if c.origin == "code"):
+        if not any(_overlaps(claim, k) for k in code):
+            code.append(claim)
+    llm: list[FoundClaim] = []
+    for claim in (c for c in ordered if c.origin != "code"):
+        if any(_overlaps(claim, k) for k in llm):
             continue
-        if any(claim.start < k.end and k.start < claim.end for k in kept):
-            continue
-        kept.append(claim)
-    return sorted(kept, key=lambda c: c.start)
+        if not _covered(claim, (k for k in code if _overlaps(claim, k))):
+            llm.append(claim)
+    return sorted([*code, *llm], key=lambda c: (c.start, -(c.end - c.start)))
 
 
 def locate(text: str, quote: str) -> tuple[int, int] | None:
@@ -207,26 +226,37 @@ def locate(text: str, quote: str) -> tuple[int, int] | None:
     return (index, index + len(quote)) if index >= 0 else None
 
 
-def _grounded(claim: FoundClaim, normalized: str, line: str, taxonomy: Taxonomy) -> bool:
-    """The claim states nothing the source line doesn't: no new number, skill, degree, employer."""
+def _grounded(
+    claim: FoundClaim, normalized: str, line: str, taxonomy: Taxonomy, ledger: Ledger
+) -> bool:
+    """The claim states nothing that neither its source line nor the ledger proves.
+
+    Numbers and employers belong to one entry, so they must be on the line itself. Skills and
+    degrees are facts about the person, so the ledger proving them is enough ("Python FastAPI
+    services" on a line naming only FastAPI). Roles and certifications are titles: their words
+    must be on the line, so "Senior" or "tech lead" can't ride in on a close paraphrase."""
     line_numbers = {q.key for q in find_quantities(line, include_years=True)}
     claim_numbers = {q.key for q in find_quantities(claim.text, include_years=True)}
     if not claim_numbers <= line_numbers:
         return False
-    if not degree_keys(claim.text) <= degree_keys(line):
+    proven_degrees = degree_keys(line) | ledger.values.get("degree", frozenset())
+    if not degree_keys(claim.text) <= proven_degrees:
         return False
     line_skills = {s.lower() for s in taxonomy.skills_in(line)}
-    if not {s.lower() for s in taxonomy.skills_in(claim.text)} <= line_skills:
+    proven_skills = line_skills | ledger.values.get("skill", frozenset())
+    if not {s.lower() for s in taxonomy.skills_in(claim.text)} <= proven_skills:
         return False
+    words = content_tokens(claim.text)
     match claim.type:
         case "skill":
             # A taxonomy skill on the line, or words the line itself uses ("prompt compression").
-            words = content_tokens(claim.text)
             return normalized in line_skills or (bool(words) and words <= content_tokens(line))
         case "employer":
             return set(normalize_org(claim.text).split()) <= set(normalize_text(line).split())
         case "metric":
             return bool(claim_numbers)
+        case "role" | "certification" | "degree":
+            return bool(words) and words <= content_tokens(line)
         case _:
             return True
 
@@ -249,7 +279,7 @@ def route(
         source_line is not None
         and similarity is not None
         and similarity >= threshold
-        and _grounded(claim, normalized, source_line, taxonomy)
+        and _grounded(claim, normalized, source_line, taxonomy, ledger)
     ):
         return Routing("inferred", normalized)
     return Routing("needs_you", normalized)
