@@ -58,7 +58,7 @@ cd frontend; npx oxlint          # frontend lint
 $env:DATABASE_URL="sqlite+aiosqlite:///./scratch.db"; .\.venv\Scripts\alembic upgrade head
 .\.venv\Scripts\alembic revision --autogenerate -m "what changed" --rev-id 0005
 
-# Keep .env in line with .env.example without losing values (backs up to .env.bak)
+# Add settings declared in app/config.py to .env without losing values (backs up to .env.bak)
 .\.venv\Scripts\python scripts\sync_env.py
 ```
 
@@ -80,8 +80,8 @@ Layers (details in `docs/ARCHITECTURE.md`):
 - **Deterministic truth.** The LLM writes language and *proposes* facts. Code decides what is
   true, what score something gets and what status it has (`app/domain/ledger.py`).
 - **Configuration vs code.** Anything that varies by environment (URLs, keys, limits, timeouts,
-  sizes, worker counts, trusted proxies) is a setting in `app/config.py`, documented in
-  `.env.example`. Domain rules (what counts as evidence, weights in the ATS formula) are named
+  sizes, worker counts, trusted proxies) is a setting in `app/config.py`, documented there with
+  a comment (there is no `.env.example`; `scripts/sync_env.py` reads the settings). Domain rules (what counts as evidence, weights in the ATS formula) are named
   constants in code with tests. The frontend never duplicates a server limit: it reads
   `/api/meta/config`.
 - **Dependency injection.** Shared clients live on `app.state` (built in `create_app` lifespan)
