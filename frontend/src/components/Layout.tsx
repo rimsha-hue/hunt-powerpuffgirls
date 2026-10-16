@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { BookCheck, Briefcase, LogOut, Rocket, Wind } from 'lucide-react'
+import { Activity, BookCheck, Briefcase, LogOut, Rocket, Sprout, Wind } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api, json, type Me } from '../lib/api'
@@ -13,6 +13,8 @@ const NAV = [
   { to: '/onboarding', label: 'Onboarding', icon: Rocket },
   { to: '/ledger', label: 'Evidence ledger', icon: BookCheck },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
+  { to: '/plans', label: 'Growth plans', icon: Sprout },
+  { to: '/activity', label: 'Activity', icon: Activity },
 ]
 
 function CalmToggle() {

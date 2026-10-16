@@ -227,6 +227,15 @@ async def _rescore_open_jobs(
     return changed
 
 
+async def rescore_user_jobs(db: AsyncSession, user: User, locations: LocationIndex) -> int:
+    """Re-scores the user's open jobs against today's ledger, e.g. right after a skill is proven."""
+    profile = user.profile
+    roles = [r for r in profile.target_roles if r.strip()]
+    places = target_places(profile.target_locations, locations)
+    ledger_skills, _ = await scoring_context(db, user.id)
+    return await _rescore_open_jobs(db, user.id, roles, places, ledger_skills)
+
+
 async def run_scout(
     db: AsyncSession,
     user: User,

@@ -128,6 +128,12 @@ class Settings(BaseSettings):
     tavily_api_url: AnyHttpUrl = AnyHttpUrl("https://api.tavily.com/search")
     research_max_results: int = Field(default=5, ge=1, le=10)
 
+    # --- Coach and growth plans (Phase 6) ---
+    # A linked repo proves a skill only with at least this many commits (spec: default 3).
+    coach_min_commits: int = Field(default=3, ge=1, le=100)
+    # Characters of a linked repo's README read when looking for the skill.
+    coach_readme_max_chars: int = Field(default=100_000, ge=1_000, le=1_000_000)
+
     # --- Verifier (Phase 3) ---
     # A rewritten line at least this similar to its source line may be Inferred (spec section 5).
     # 0.85 is tuned by the claim eval (`python -m eval.run`, see README "Claim checker eval").

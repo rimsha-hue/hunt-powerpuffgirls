@@ -404,3 +404,97 @@ class ClaimDecisionIn(BaseModel):
     url: AnyHttpUrl | None = None
     note: str | None = Field(default=None, max_length=280)
     text: str | None = Field(default=None, max_length=300)
+
+
+# ---- Coach and growth plans (Phase 6) ----
+
+
+class PlanCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    skill: str = Field(min_length=1, max_length=100)
+    job_id: int | None = None
+
+
+class PlanStepIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    done: bool
+
+
+class PlanVerifyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repo_url: str = Field(min_length=1, max_length=300)
+
+
+class PlanStepOut(BaseModel):
+    text: str
+    done: bool
+
+
+class PlanCheckOut(BaseModel):
+    name: str  # owner | fresh | skill | commits
+    passed: bool
+    detail: str
+
+
+class PlanOut(BaseModel):
+    id: int
+    skill: str
+    title: str
+    why: str
+    steps: list[PlanStepOut]
+    hours: int
+    status: Literal["open", "in_progress", "verified"]
+    written_by: Literal["llm", "template"]
+    acceptance: list[str]
+    # Other skills the plan touches that the ledger doesn't prove yet.
+    also_new: list[str]
+    repo_url: str | None
+    checks: list[PlanCheckOut]
+    job_id: int | None
+    job_title: str | None
+    created_at: datetime
+    verified_at: datetime | None
+
+
+class PlanVerifyOut(BaseModel):
+    plan: PlanOut
+    verified: bool
+
+
+# ---- Activity (Phase 6) ----
+
+
+class CountersOut(BaseModel):
+    checked_automatically: int
+    sent_to_you: int
+    unverified_shipped: int
+    applications_sent: int
+    plans_verified: int
+    plans_open: int
+
+
+class AskedOut(BaseModel):
+    application_id: int
+    job_title: str
+    company: str
+    questions: int
+    created_at: datetime
+
+
+class ActivityEventOut(BaseModel):
+    id: int
+    actor: str
+    action: str
+    label: str
+    gate: int | None
+    entity: str
+    created_at: datetime
+
+
+class ActivityOut(BaseModel):
+    counters: CountersOut
+    questions: list[AskedOut]
+    events: list[ActivityEventOut]

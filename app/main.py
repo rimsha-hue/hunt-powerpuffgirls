@@ -14,7 +14,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import __version__
-from app.api import applications, auth, forms, health, jobs, ledger, meta, profile
+from app.api import activity, applications, auth, forms, health, jobs, ledger, meta, plans, profile
 from app.api.ratelimit import RateLimiter
 from app.assets import RECORDED_JOBS
 from app.config import Settings, get_settings
@@ -234,6 +234,8 @@ def create_app(
         jobs.router,
         applications.router,
         forms.router,
+        plans.router,
+        activity.router,
     )
     for router in routers:
         app.include_router(router)

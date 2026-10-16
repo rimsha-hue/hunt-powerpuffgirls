@@ -19,6 +19,7 @@ import { Link, useParams } from 'react-router'
 import { EmailPanel } from '../components/EmailPanel'
 import { FormPanel } from '../components/FormPanel'
 import { Highlighted } from '../components/Highlighted'
+import { SkillGap } from '../components/PlanButton'
 import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
 import {
   api,
@@ -583,13 +584,12 @@ export default function Workspace() {
             <Panel>
               <PanelTitle kicker="Skill gaps">Not in your ledger yet</PanelTitle>
               <p className="text-sm">
-                Power Hunt never adds these to your CV. The Coach will turn each into a small project you can prove.
+                Power Hunt never adds these to your CV. Click one and the Coach turns it into a small project you can
+                prove on GitHub.
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {j.missing_skills.map((skill) => (
-                  <span key={skill} className="rounded-full border-2 border-ink bg-white px-2 py-0.5 text-xs font-semibold">
-                    {skill}
-                  </span>
+                  <SkillGap key={skill} skill={skill} jobId={j.id} />
                 ))}
               </div>
             </Panel>

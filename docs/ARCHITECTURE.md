@@ -1,6 +1,6 @@
 # Architecture
 
-How the code fits together today (end of Phase 7 eval). For the full product spec see `SPEC.md`.
+How the code fits together today (end of Phase 6 and the Phase 7 eval). For the full product spec see `SPEC.md`.
 
 ## Runtime shape
 
@@ -38,6 +38,8 @@ app/
     applications.py  Workspace: tailor, claim decisions, approve, cv.pdf, compose, email edits,
                      uploads, waive, cover-letter.pdf, send
     forms.py         Flow D endpoints (questions, answers, approve, submitted)
+    plans.py         Growth plans: list, create, steps, verify on GitHub, delete
+    activity.py      Activity screen data
     deps.py          DB session, current user + CSRF, shared clients from app.state
     ratelimit.py     RateLimiter (limits library) + rate_limit("rule") dependency
     schemas.py       Request/response contracts
@@ -62,6 +64,8 @@ app/
     compose.py       Email/cover letter rules: subject, sentences, length, attachment plan
     questions.py     Form questions: types, limits, profile answers, options
     research.py      Company facts: verbatim sentences naming the company
+    coach.py         Growth plan rules, repo URL parsing, the four GitHub acceptance checks
+    activity.py      Plain-language audit labels and which gate each records
   integrations/
     llm.py           LiteLLM client: provider chain, data blocks, schema validation + repair
     resume_text.py   PDF/DOCX text: invisible-text filter, column detection, word gaps
@@ -90,12 +94,14 @@ app/
     composer.py      Composer and Courier: draft, verify prose, uploads, waive, send
     researcher.py    Company facts with 7-day cache and job-description fallback
     form_apply.py    Flow D: discover, draft typed answers, edit, approve, submitted
+    coach.py         Growth plans (LLM draft or template) and repo verification into the ledger
+    activity.py      Activity counters, questions per application, timeline
   db/
     models.py        users, profiles, auth_sessions, resume_lines, evidence, claim_blocklist, audit
     session.py       Engine factory, DatabaseProbe, ping
-    migrations/      Alembic (0001 to 0009)
+    migrations/      Alembic (0001 to 0010)
 frontend/src/
-  pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail, Workspace, ApplyPack (app pages are lazy-loaded)
+  pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail, Workspace, ApplyPack, Plans, Activity (app pages are lazy-loaded)
   components/        Layout (nav, Calm mode), Logo, ChipInput (combobox), FactList, Toast, ui
   lib/               api client (CSRF, field errors), session, config, calm, toast, cx
 data/                skills_taxonomy.json, job_titles.json
@@ -116,6 +122,7 @@ tests/               unit/ (domain, integrations), integration/ (API end to end 
 | `evidence` | The ledger | `type`, `normalized_value`, `source` (resume, github, portfolio, ...), `source_ref` (line id or URL), `context` (entry a metric belongs to). Unique per (user, type, value, source) |
 | `claim_blocklist` | Values the user marked false | Never re-enter the ledger (Verify gate, Phase 3) |
 | `audit` | Every gate decision and ledger change | Ids and event names only |
+| `skill_plans` | Growth plans (Phase 6) | One per user and skill; steps, status, linked repo, last checks |
 
 All user-owned tables cascade on user delete ("Delete my data").
 

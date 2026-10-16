@@ -12,7 +12,7 @@ Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC
 | 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | **Done.** Verified live with Groq + bge-small: 7 bullets rewritten, 26 claims checked automatically, 1 sent to the user. |
 | 4 | Email apply flow (attachments, humanized email, SMTP send) | **Done.** Verified live: Groq draft, one invented claim flagged, sent through Gmail with the CV attached, job Applied, follow-up in 7 days. |
 | 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | **Done.** Verified live on Anthropic's Greenhouse job 5186067008: 24 questions typed, profile and ledger answers sourced, two written answers citing a Tavily fact with its URL, consent left to the user. |
-| 6 | Coach and growth plans with GitHub verification; Activity screen | **Next.** Not started |
+| 6 | Coach and growth plans with GitHub verification; Activity screen | **Done.** Verified live: Groq plans for Data Science, Kubernetes and Kafka (12 to 18 hours), real GitHub checks with reasons, counters with 0 unverified claims shipped. |
 | 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | **Eval done:** 112 cases, held-out catch rate 95.0% and false alarms 2.8% at the tuned `INFER_THRESHOLD` 0.85; CI baseline; malicious JD test. Demo mode for jobs since Phase 2. MCP not built. |
 
 Cut line if time runs short: phases 0 to 4 and the eval first (spec section 19).
@@ -172,6 +172,26 @@ every email to one inbox), and set `INTERNAL_TOKEN` if a cron will call `/intern
   injected into a job description is taken as the recipient, so Gate 3's visible, editable To
   field is the protection.
 
+## 5f. Phase 6: what was built
+
+- Migration 0010: `skill_plans` (one per user and skill: steps, hours, status, repo, last checks).
+- `domain/coach.py`: plan rules (4 to 6 steps, at most 30 hours, style rules, names the skill, at
+  most 2 other unproven skills), a template plan, acceptance criteria written by code, strict
+  GitHub repo URLs, and the four checks: owner and not a fork, started on or after the plan's day,
+  skill in languages, topics, description or README, at least `COACH_MIN_COMMITS` commits.
+- `integrations/github.py` `repo_facts`: repo, languages, base64 README (capped by
+  `COACH_README_MAX_CHARS`), commit count and first commit from the `Link` header; private repos
+  are refused.
+- `services/coach.py`: LLM draft with one cumulative rewrite, else the template. A passing repo
+  adds `github` evidence, verifies open Needs-you claims for the skill in drafts, clears an old
+  "mark false" for it, and re-scores open jobs (`scout.rescore_user_jobs`).
+- `/api/plans` (list, create, step, verify, delete) and `/api/activity` (timeline with gate
+  markers, counters, questions per application).
+- Frontend: skill gaps in Job detail and the Workspace are buttons that make a plan; Growth plans
+  page (checklist, criteria with results, repo link, LEVEL UP banner); Activity page.
+- Fixed on the way: `llm.strict_json_schema` dropped any property named `title` (or another
+  keyword name), so models never returned it.
+
 ## 6. Useful snippets
 
 LLM probe (prints model, OK or error type; never the key):
@@ -218,6 +238,9 @@ Check which `.env` keys are set without printing values:
 | Prose verified sentence by sentence against the closest resume line | Emails and letters have no one-to-one source line; this also checks the user's own edits |
 | Eval replays the LLM claim pass from recorded claims | Deterministic, keyless CI gate; measures the code routing and embeddings, which decide the bucket |
 | `INFER_THRESHOLD` 0.85 (tuned), ties go to the higher threshold | The tuned value; leaning toward asking the user fits the human-in-the-loop rule |
+| A growth plan may touch at most two other skills the ledger doesn't prove, shown to the user | Proving one skill shouldn't need several new tools; a hard ban sent almost every plan to the template |
+| Acceptance criteria are written by code, never by the LLM | They are exactly what Power Hunt checks on GitHub |
+| A verified repo clears an earlier "mark false" of that skill | New proof outweighs an old answer |
 | fpdf2 for the CV PDF instead of WeasyPrint | Pure Python: same output in Docker, CI and on Windows; text-only one-column layout is ATS-safe |
 | Gates as statuses and API calls instead of LangGraph interrupts | Each gate already persists in Postgres; LangGraph added weight without a new capability under the deadline |
 | Tailor rewrites one source line per bullet, within its entry | Merging or moving lines could attach a result to the wrong job |

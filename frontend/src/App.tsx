@@ -58,6 +58,8 @@ const router = createBrowserRouter([
           { path: '/jobs/:id', lazy: page(() => import('./pages/JobDetail')) },
           { path: '/jobs/:id/workspace', lazy: page(() => import('./pages/Workspace')) },
           { path: '/jobs/:id/pack', lazy: page(() => import('./pages/ApplyPack')) },
+          { path: '/plans', lazy: page(() => import('./pages/Plans')) },
+          { path: '/activity', lazy: page(() => import('./pages/Activity')) },
         ],
       },
     ],
