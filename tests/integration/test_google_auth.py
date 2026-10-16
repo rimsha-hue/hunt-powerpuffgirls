@@ -15,7 +15,7 @@ from app.config import Settings
 from app.integrations.google_oauth import TOKEN_URL
 from app.main import create_app
 from app.services.signing import sign, unsign
-from tests.conftest import FakeLLM, signup
+from tests.conftest import LOCATIONS, FakeLLM, signup
 
 CLIENT_ID = "test-client.apps.googleusercontent.com"
 
@@ -48,7 +48,9 @@ def google_settings(settings: Settings) -> Settings:
 
 @pytest.fixture
 def gclient(google_settings: Settings) -> Iterator[TestClient]:
-    with TestClient(create_app(google_settings, llm=FakeLLM()), follow_redirects=False) as client:
+    with TestClient(
+        create_app(google_settings, llm=FakeLLM(), locations=LOCATIONS), follow_redirects=False
+    ) as client:
         yield client
 
 
@@ -71,11 +73,11 @@ def finish(client: TestClient, query: dict[str, str], token: str) -> httpx.Respo
 
 class TestStart:
     def test_hidden_when_not_configured(self, client: TestClient) -> None:
-        assert client.get("/api/auth/providers").json() == {"password": True, "google": False}
+        assert client.get("/api/meta/config").json()["google_sign_in"] is False
         assert client.get("/api/auth/google/start", follow_redirects=False).status_code == 404
 
     def test_redirects_to_google_with_pkce_state_and_nonce(self, gclient: TestClient) -> None:
-        assert gclient.get("/api/auth/providers").json()["google"] is True
+        assert gclient.get("/api/meta/config").json()["google_sign_in"] is True
         query = start(gclient)
         assert query["client_id"] == CLIENT_ID
         assert query["redirect_uri"] == "http://testserver/api/auth/google/callback"

@@ -2,10 +2,11 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from app.config import Settings
 from app.main import create_app
+from tests.conftest import LOCATIONS
 
 
 class TestHealth:
@@ -24,7 +25,7 @@ class TestHealth:
         bad = settings.model_copy(
             update={"database_url": f"sqlite+aiosqlite:///{tmp_path}/missing/dir/x.db"}
         )
-        with TestClient(create_app(bad)) as client:
+        with TestClient(create_app(bad, locations=LOCATIONS)) as client:
             health = client.get("/health")
             ready = client.get("/ready")
         assert health.status_code == 503
@@ -75,15 +76,28 @@ class TestSettings:
         settings = Settings(database_url="postgresql://u:p@host/db?sslmode=require", _env_file=None)  # type: ignore[call-arg]
         assert settings.database_url == "postgresql+psycopg://u:p@host/db?sslmode=require"
 
-    def test_production_refuses_default_secret(self) -> None:
-        settings = Settings(app_env="production", _env_file=None)  # type: ignore[call-arg]
-        with pytest.raises(RuntimeError, match="SECRET_KEY"):
-            settings.assert_safe_for_production()
+    @pytest.mark.parametrize("secret", [None, "short-secret"])
+    def test_production_refuses_missing_or_weak_secrets(self, secret: str | None) -> None:
+        extra = {"secret_key": SecretStr(secret)} if secret else {}
+        with pytest.raises(ValidationError, match="SECRET_KEY"):
+            Settings(app_env="production", _env_file=None, **extra)  # type: ignore[call-arg, arg-type]
 
-    def test_production_accepts_real_secret(self) -> None:
-        settings = Settings(
-            app_env="production",
-            secret_key=SecretStr("x" * 48),
-            _env_file=None,  # type: ignore[call-arg]
-        )
-        settings.assert_safe_for_production()
+    def test_production_accepts_a_real_secret(self) -> None:
+        settings = Settings(app_env="production", secret_key=SecretStr("x" * 48), _env_file=None)  # type: ignore[call-arg]
+        assert settings.is_production
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("app_env", "prod"),
+            ("log_level", "LOUD"),
+            ("app_base_url", "not a url"),
+            ("rate_limit_login", "lots"),
+            ("jina_reader_url", "http://insecure.example/"),
+            ("default_phone_region", "pakistan"),
+            ("max_upload_mb", 500),
+        ],
+    )
+    def test_misconfiguration_fails_at_startup(self, field: str, value: object) -> None:
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, **{field: value})  # type: ignore[call-arg, arg-type]

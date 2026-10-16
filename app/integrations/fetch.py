@@ -25,9 +25,7 @@ MAX_BYTES = 2 * 1024 * 1024
 TIMEOUT_SECONDS = 10.0
 MAX_REDIRECTS = 5
 TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain", "text/markdown")
-USER_AGENT = (
-    "PowerHuntBot/0.1 (evidence verification; +https://github.com/rimsha-hue/hunt-powerpuffgirls)"
-)
+DEFAULT_USER_AGENT = "PowerHuntBot (evidence verification)"
 
 Resolver = Callable[[str, int], Awaitable[list[str]]]
 
@@ -98,12 +96,14 @@ class SafeFetcher:
         max_bytes: int = MAX_BYTES,
         timeout: float = TIMEOUT_SECONDS,
         max_redirects: int = MAX_REDIRECTS,
+        user_agent: str = DEFAULT_USER_AGENT,
     ) -> None:
         self.http = http
         self.resolver = resolver
         self.max_bytes = max_bytes
         self.timeout = timeout
         self.max_redirects = max_redirects
+        self.user_agent = user_agent
 
     async def _resolve_public(
         self, host: str, port: int
@@ -133,7 +133,11 @@ class SafeFetcher:
                 request = self.http.build_request(
                     "GET",
                     _pinned(current, ip),
-                    headers={"Host": host, "User-Agent": USER_AGENT, "Accept": ", ".join(accept)},
+                    headers={
+                        "Host": host,
+                        "User-Agent": self.user_agent,
+                        "Accept": ", ".join(accept),
+                    },
                     extensions={"sni_hostname": host} if scheme == "https" else {},
                     timeout=self.timeout,
                 )

@@ -6,6 +6,7 @@ from typing import Annotated
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.domain.profile import NoticePeriod, SalaryPeriod, WorkAuthorization
 from app.integrations.github import USERNAME_RE
 from app.services.auth import MIN_PASSWORD_LENGTH
 
@@ -43,34 +44,63 @@ class MeOut(BaseModel):
     is_demo: bool
 
 
+class PlaceOut(BaseModel):
+    key: str
+    label: str
+    kind: str
+
+
+class SalaryIn(BaseModel):
+    amount: int = Field(gt=0, le=1_000_000_000)
+    currency: str = Field(pattern=r"^[A-Za-z]{3}$")
+    period: SalaryPeriod
+
+    @field_validator("currency")
+    @classmethod
+    def _upper(cls, value: str) -> str:
+        return value.upper()
+
+
+class SalaryOut(BaseModel):
+    amount: int
+    currency: str
+    period: SalaryPeriod
+
+
 class ProfileOut(BaseModel):
     name: str
     email: str
     github_username: str | None
     portfolio_url: str | None
     phone: str | None
-    location: str | None
+    location: PlaceOut | None
     linkedin: str | None
-    work_authorization: str | None
-    notice_period: str | None
-    salary_expectation: str | None
+    work_authorization: WorkAuthorization | None
+    notice_period: NoticePeriod | None
+    salary: SalaryOut | None
     target_roles: list[str]
-    target_locations: list[str]
+    target_locations: list[PlaceOut]
     match_threshold: int
     calm_mode: bool
     resume_version: int
 
 
 class ProfileIn(BaseModel):
+    """Shape checks only. Meaning (is it a real place, a job title, a phone number?) is checked by
+    the profile service against reference data, and every field is normalised before storage.
+    An explicit null clears a field; an omitted field is left unchanged."""
+
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(default=None, max_length=200)
-    github_username: str | None = Field(default=None, max_length=39)
+    github_username: str | None = Field(default=None, max_length=60)
     portfolio_url: AnyHttpUrl | None = None
-    phone: str | None = Field(default=None, max_length=50)
-    location: str | None = Field(default=None, max_length=200)
-    linkedin: str | None = Field(default=None, max_length=500)
-    work_authorization: str | None = Field(default=None, max_length=200)
-    notice_period: str | None = Field(default=None, max_length=100)
-    salary_expectation: str | None = Field(default=None, max_length=100)
+    phone: str | None = Field(default=None, max_length=40)
+    location: str | None = Field(default=None, max_length=100)
+    linkedin: str | None = Field(default=None, max_length=300)
+    work_authorization: WorkAuthorization | None = None
+    notice_period: NoticePeriod | None = None
+    salary: SalaryIn | None = None
     target_roles: list[ShortText] | None = Field(default=None, max_length=10)
     target_locations: list[ShortText] | None = Field(default=None, max_length=10)
     match_threshold: int | None = Field(default=None, ge=0, le=100)
@@ -79,23 +109,27 @@ class ProfileIn(BaseModel):
     @field_validator("github_username")
     @classmethod
     def _github(cls, value: str | None) -> str | None:
-        if value is None or value == "":
-            return value
-        value = re.sub(r"^(?:https?://)?github\.com/", "", value.strip()).strip("/")
+        if not value:
+            return None
+        value = re.sub(r"^(?:https?://)?(?:www\.)?github\.com/", "", value.strip()).strip("/")
         if not USERNAME_RE.match(value):
             raise ValueError("Not a valid GitHub username")
         return value
 
-    @field_validator("target_roles", "target_locations")
-    @classmethod
-    def _clean_list(cls, value: list[str] | None) -> list[str] | None:
-        if value is None:
-            return None
-        seen: list[str] = []
-        for item in (v.strip() for v in value):
-            if item and item.lower() not in {s.lower() for s in seen}:
-                seen.append(item)
-        return seen
+
+class Option(BaseModel):
+    value: str
+    label: str
+
+
+class PublicConfigOut(BaseModel):
+    """Server limits and choices the UI needs, so the frontend never duplicates them."""
+
+    max_upload_mb: int
+    google_sign_in: bool
+    work_authorization: list[Option]
+    notice_period: list[Option]
+    salary_period: list[Option]
 
 
 class EvidenceOut(BaseModel):

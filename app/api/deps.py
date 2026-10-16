@@ -1,16 +1,15 @@
-"""Request dependencies: database session, current user, CSRF enforcement and rate limiting."""
+"""Request dependencies: database session, current user, CSRF enforcement, shared services."""
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.db.models import AuthSession, User
+from app.domain.locations import LocationIndex
 from app.domain.taxonomy import Taxonomy
 from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
@@ -20,8 +19,6 @@ from app.services.auth import resolve_session, tokens_match
 SESSION_COOKIE = "ph_session"
 CSRF_HEADER = "X-CSRF-Token"
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-
-limiter = Limiter(key_func=get_remote_address, headers_enabled=False)
 
 
 async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
@@ -59,12 +56,19 @@ def get_fetcher(request: Request) -> SafeFetcher:
     return fetcher
 
 
+async def get_locations(request: Request) -> LocationIndex:
+    """The location index, waiting for the background load on the first requests after start."""
+    index: LocationIndex = await request.app.state.locations
+    return index
+
+
 Db = Annotated[AsyncSession, Depends(get_db)]
 AppSettings = Annotated[Settings, Depends(get_settings_dep)]
 LLM = Annotated[StructuredLLM, Depends(get_llm)]
 Tax = Annotated[Taxonomy, Depends(get_taxonomy)]
 GitHub = Annotated[GitHubClient, Depends(get_github)]
 Fetcher = Annotated[SafeFetcher, Depends(get_fetcher)]
+Locations = Annotated[LocationIndex, Depends(get_locations)]
 
 
 @dataclass

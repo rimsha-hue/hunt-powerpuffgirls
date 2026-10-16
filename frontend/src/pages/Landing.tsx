@@ -129,7 +129,7 @@ function StatusRow({ name, state }: { name: string; state: CheckState }) {
 
 function IntroVideo() {
   const calm = useCalm()
-  // Plays once and rests on its final frame. Calm mode or reduced motion: still image, play on request.
+  // Loops while the page is open. Calm mode or reduced motion: still image, play on request.
   return (
     <figure className="panel relative overflow-hidden bg-ink">
       <video
@@ -141,6 +141,7 @@ function IntroVideo() {
         playsInline
         preload={calm ? 'none' : 'auto'}
         autoPlay={!calm}
+        loop={!calm}
         controls={calm}
         aria-label="Power Hunt intro animation"
       />

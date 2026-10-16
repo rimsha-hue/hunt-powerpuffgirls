@@ -1,0 +1,10 @@
+{
+  "notes": "Preferences for the seeded demo account. Applied through the same validators as the profile form.",
+  "name": "Ayesha Khan",
+  "target_roles": ["Machine Learning Engineer", "AI Engineer", "Backend Engineer"],
+  "target_locations": ["Remote", "Lahore, Pakistan", "Islamabad, Pakistan"],
+  "location": "Lahore, Pakistan",
+  "match_threshold": 60,
+  "notice_period": "1_month",
+  "work_authorization": "citizen"
+}

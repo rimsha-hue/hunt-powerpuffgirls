@@ -104,7 +104,15 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> User | No
 async def create_session(
     db: AsyncSession, user: User, *, days: int, scope_job_id: int | None = None
 ) -> tuple[str, AuthSession]:
-    """Returns the raw token (for the cookie) and the stored session (holding only its hash)."""
+    """Returns the raw token (for the cookie) and the stored session (holding only its hash).
+
+    The user's expired sessions are removed at the same time, so the table can't grow without bound.
+    """
+    await db.execute(
+        delete(AuthSession).where(
+            AuthSession.user_id == user.id, AuthSession.expires_at <= datetime.now(UTC)
+        )
+    )
     token = secrets.token_urlsafe(32)
     session = AuthSession(
         user_id=user.id,

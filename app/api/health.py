@@ -1,6 +1,5 @@
 """Health endpoints: `/health` for humans and monitors, `/ready` for the platform."""
 
-import asyncio
 from typing import Literal
 
 import structlog
@@ -8,12 +7,10 @@ from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel
 
 from app import __version__
-from app.db.session import ping
+from app.db.session import DatabaseProbe
 
 router = APIRouter(tags=["health"])
 logger = structlog.get_logger()
-
-DB_PING_TIMEOUT_SECONDS = 3.0
 
 CheckState = Literal["ok", "down", "configured", "not_configured", "not_started"]
 
@@ -27,12 +24,12 @@ class HealthReport(BaseModel):
 
 
 async def _database_state(request: Request) -> CheckState:
-    try:
-        await asyncio.wait_for(ping(request.app.state.engine), DB_PING_TIMEOUT_SECONDS)
+    probe: DatabaseProbe = request.app.state.db_probe
+    problem = await probe.check(request.app.state.settings.db_health_timeout_seconds)
+    if problem is None:
         return "ok"
-    except Exception as exc:
-        logger.warning("health_db_unreachable", error_type=type(exc).__name__)
-        return "down"
+    logger.warning("health_db_unreachable", reason=problem)
+    return "down"
 
 
 @router.get("/health", response_model=HealthReport)

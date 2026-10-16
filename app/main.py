@@ -1,58 +1,109 @@
-"""FastAPI entrypoint: API routers, security headers and the built React frontend."""
+"""FastAPI entrypoint: API routers, middleware and the built React frontend."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import anyio
 import httpx
 import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+from starlette.responses import Response
+from starlette.types import Scope
 
 from app import __version__
-from app.api import auth, health, ledger, profile
-from app.api.deps import limiter
+from app.api import auth, health, ledger, meta, profile
+from app.api.ratelimit import RateLimiter
 from app.config import Settings, get_settings
-from app.db.session import create_engine, create_session_factory
+from app.db.session import DatabaseProbe, create_engine, create_session_factory, ping
+from app.domain.locations import LocationIndex, load_geonames
 from app.domain.taxonomy import default_taxonomy
 from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
 from app.integrations.llm import StructuredLLM, build_llm
 from app.logging import configure_logging
+from app.middleware import BodySizeLimitMiddleware
 from app.security import SecurityHeadersMiddleware
 
 logger = structlog.get_logger()
 
 # Paths that belong to the backend; the SPA fallback must never shadow them.
 BACKEND_PREFIXES = ("api/", "internal/", "mcp", "health", "ready", "docs", "openapi.json")
+CACHE_IMMUTABLE = "public, max-age=31536000, immutable"  # content-hashed build assets
+CACHE_PUBLIC_FILES = "public, max-age=86400"  # media, icons
+CACHE_HTML = "no-cache"  # always revalidate the app shell so deploys show up at once
+
+
+class ImmutableStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = CACHE_IMMUTABLE
+        return response
+
+
+async def _load_locations() -> LocationIndex:
+    index = await anyio.to_thread.run_sync(load_geonames)
+    logger.info("locations_loaded", places=len(index.places))
+    return index
 
 
 def create_app(
     settings: Settings | None = None,
     llm: StructuredLLM | None = None,
     fetcher: SafeFetcher | None = None,
+    locations: LocationIndex | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
-    settings.assert_safe_for_production()
     configure_logging(settings.log_level, settings.log_json)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_engine(settings.database_url)
-        http = httpx.AsyncClient(timeout=httpx.Timeout(10.0), follow_redirects=False)
+        engine = create_engine(
+            settings.database_url,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            connect_timeout=settings.db_connect_timeout_seconds,
+        )
+        app.state.db_probe = DatabaseProbe(lambda: ping(engine))
+        app.state.db_probe.start()  # warm the pool now, so the first request doesn't pay for it
+        http = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.http_timeout_seconds), follow_redirects=False
+        )
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)
         app.state.http = http
         app.state.github = GitHubClient(
-            http, settings.github_token.get_secret_value() if settings.github_token else None
+            http,
+            api_url=str(settings.github_api_url),
+            token=settings.github_token.get_secret_value() if settings.github_token else None,
+            max_repos=settings.github_max_repos,
+            language_detail_repos=settings.github_language_detail_repos,
         )
-        app.state.fetcher = fetcher or SafeFetcher(http)
+        app.state.fetcher = fetcher or SafeFetcher(
+            http,
+            max_bytes=settings.fetch_max_bytes,
+            timeout=settings.http_timeout_seconds,
+            max_redirects=settings.fetch_max_redirects,
+            user_agent=f"PowerHuntBot/{__version__} (+{settings.base_url})",
+        )
+        # The GeoNames index takes seconds to build; load it in the background so the app is
+        # ready at once. Location lookups await it; nothing else depends on it.
+        if locations is not None:
+            ready: asyncio.Future[LocationIndex] = asyncio.get_running_loop().create_future()
+            ready.set_result(locations)
+            app.state.locations = ready
+        else:
+            app.state.locations = asyncio.create_task(_load_locations())
         logger.info(
             "app_started", env=settings.app_env, version=__version__, llm=app.state.llm.configured
         )
         yield
+        if isinstance(app.state.locations, asyncio.Task) and not app.state.locations.done():
+            app.state.locations.cancel()
+        await app.state.db_probe.close()
         await http.aclose()
         await engine.dispose()
         logger.info("app_stopped")
@@ -68,14 +119,16 @@ def create_app(
     app.state.settings = settings
     app.state.taxonomy = default_taxonomy()
     app.state.llm = llm or build_llm(settings)
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    app.state.rate_limiter = RateLimiter(settings.rate_limit_storage_uri, settings.rate_limits)
     app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        json_limit_bytes=settings.max_json_kb * 1024,
+        upload_limit_bytes=settings.max_upload_mb * 1024 * 1024,
+    )
 
-    app.include_router(health.router)
-    app.include_router(auth.router)
-    app.include_router(profile.router)
-    app.include_router(ledger.router)
+    for router in (health.router, auth.router, profile.router, ledger.router, meta.router):
+        app.include_router(router)
 
     _mount_frontend(app, settings)
     return app
@@ -89,17 +142,17 @@ def _mount_frontend(app: FastAPI, settings: Settings) -> None:
         return
 
     if (dist / "assets").is_dir():
-        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+        app.mount("/assets", ImmutableStaticFiles(directory=dist / "assets"), name="assets")
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str) -> FileResponse:
         if path.startswith(BACKEND_PREFIXES):
             raise HTTPException(status_code=404)
         candidate = (dist / path).resolve()
-        # Serve real top-level files (favicon etc.), guarding against path traversal.
+        # Serve real files (favicon, media), guarding against path traversal.
         if path and candidate.is_file() and candidate.is_relative_to(dist):
-            return FileResponse(candidate)
-        return FileResponse(index)
+            return FileResponse(candidate, headers={"Cache-Control": CACHE_PUBLIC_FILES})
+        return FileResponse(index, headers={"Cache-Control": CACHE_HTML})
 
 
 app = create_app()
