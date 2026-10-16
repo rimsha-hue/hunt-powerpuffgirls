@@ -266,6 +266,7 @@ class ClaimSourceOut(BaseModel):
 
 class ClaimOut(BaseModel):
     id: int
+    document: str  # cv, email or cover_letter
     block_index: int
     text: str
     type: str
@@ -301,6 +302,42 @@ class ApplicationOut(BaseModel):
     blocked: int
     cv_approved_at: datetime | None
     updated_at: datetime
+    email: "EmailOut | None"
+
+
+class AttachmentOut(BaseModel):
+    kind: str
+    label: str
+    status: str  # attached | link | uploaded | missing | waived
+    detail: str | None
+
+
+class EmailOut(BaseModel):
+    recipient: str | None
+    subject: str | None
+    blocks: list[CvBlockOut]
+    signature: str
+    cover_letter: list[CvBlockOut]
+    attachments: list[AttachmentOut]
+    note: str | None
+    blockers: list[str]
+    sent_at: datetime | None
+    follow_up_due: datetime | None
+
+
+class EmailEditIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recipient: EmailStr | None = None
+    subject: str | None = Field(default=None, min_length=1, max_length=150)
+    body: str | None = Field(default=None, min_length=1, max_length=4000)
+    cover_letter: str | None = Field(default=None, min_length=1, max_length=6000)
+
+
+class WaiveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    waived: bool
 
 
 class ClaimDecisionIn(BaseModel):

@@ -1,6 +1,6 @@
 # Architecture
 
-How the code fits together today (end of Phase 3). For the full product spec see `SPEC.md`.
+How the code fits together today (end of Phase 4). For the full product spec see `SPEC.md`.
 
 ## Runtime shape
 
@@ -35,7 +35,8 @@ app/
     meta.py          /api/meta/config, location and role suggestions
     health.py        /health (db, llm, scheduler) and /ready
     jobs.py          Jobs list/detail, fetch, status, Gate 1, /apply links, /internal/run-scout
-    applications.py  Workspace: tailor, claim decisions, approve, cv.pdf
+    applications.py  Workspace: tailor, claim decisions, approve, cv.pdf, compose, email edits,
+                     uploads, waive, cover-letter.pdf, send
     deps.py          DB session, current user + CSRF, shared clients from app.state
     ratelimit.py     RateLimiter (limits library) + rate_limit("rule") dependency
     schemas.py       Request/response contracts
@@ -57,6 +58,7 @@ app/
     cv.py            Tailored CV blocks (one per resume line), rewrites within an entry
     claims.py        Claim code pass and routing: Verified, Inferred, Needs you, blocked
     style.py         Banned phrases and dashes
+    compose.py       Email/cover letter rules: subject, sentences, length, attachment plan
   integrations/
     llm.py           LiteLLM client: provider chain, data blocks, schema validation + repair
     resume_text.py   PDF/DOCX text: invisible-text filter, column detection, word gaps
@@ -80,10 +82,11 @@ app/
     tailor.py        Tailor (LLM rewrite with code checks, relevance fallback)
     verifier.py      Claim extraction and routing; Gate 2 answers
     applications.py  Workspace: tailor, verify, ATS after, approve
+    composer.py      Composer and Courier: draft, verify prose, uploads, waive, send
   db/
     models.py        users, profiles, auth_sessions, resume_lines, evidence, claim_blocklist, audit
     session.py       Engine factory, DatabaseProbe, ping
-    migrations/      Alembic (0001 to 0006)
+    migrations/      Alembic (0001 to 0007)
 frontend/src/
   pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail, Workspace (app pages are lazy-loaded)
   components/        Layout (nav, Calm mode), Logo, ChipInput (combobox), FactList, Toast, ui

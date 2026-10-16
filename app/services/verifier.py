@@ -5,7 +5,7 @@ Claims on the user's blocklist are removed from the text automatically. Confirmi
 to the ledger as user-confirmed evidence, so the same claim is Verified on the next application.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -15,7 +15,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Claim, ClaimBlocklist, Evidence
-from app.domain.claims import FoundClaim, Ledger, Routing, code_claims, locate, merge, route
+from app.domain.claims import (
+    FoundClaim,
+    Ledger,
+    Routing,
+    clause_around,
+    code_claims,
+    locate,
+    merge,
+    outside,
+    route,
+)
 from app.domain.cv import Block, replace_span, too_short
 from app.domain.ledger import FactType
 from app.domain.taxonomy import Taxonomy
@@ -117,31 +127,68 @@ async def _llm_claims(
     return found, None
 
 
-def _route_block(
+def _find(
     block: Block,
     llm_found: Sequence[FoundClaim],
+    *,
+    employers: Sequence[str],
+    taxonomy: Taxonomy,
+    ignore: Sequence[str],
+) -> list[FoundClaim]:
+    found = merge([*code_claims(block.text, taxonomy, employers), *llm_found])
+    return outside(found, block.text, ignore)
+
+
+def _route(
+    claim: FoundClaim,
+    block: Block,
     sim: float,
     *,
     ledger: Ledger,
-    employers: Sequence[str],
     taxonomy: Taxonomy,
     threshold: float,
-) -> list[tuple[FoundClaim, Routing]]:
-    found = merge([*code_claims(block.text, taxonomy, employers), *llm_found])
-    return [
-        (
-            claim,
-            route(
-                claim,
-                ledger=ledger,
-                taxonomy=taxonomy,
-                source_line=block.original,
-                similarity=sim,
-                threshold=threshold,
-            ),
-        )
-        for claim in found
-    ]
+) -> Routing:
+    return route(
+        claim,
+        ledger=ledger,
+        taxonomy=taxonomy,
+        source_line=block.original or None,
+        similarity=sim,
+        threshold=threshold,
+    )
+
+
+async def _claim_similarities(
+    blocks: Sequence[Block], found: Mapping[int, Sequence[FoundClaim]], similarity: Similarity
+) -> dict[tuple[int, int, int], float]:
+    """Per claim (block, start, end): the better of its sentence's and its clause's similarity to
+    the block's source line. Unchanged lines are their own source (1.0); no source line, 0."""
+    pairs: list[tuple[str, str]] = []
+    keys: list[tuple[int, int, int] | int] = []
+    for i, claims in found.items():
+        block = blocks[i]
+        if not block.rewritten or not block.original:
+            continue
+        pairs.append((block.text, block.original))
+        keys.append(i)
+        for claim in claims:
+            clause = clause_around(block.text, claim.start, claim.end)
+            if clause and clause != block.text:
+                pairs.append((clause, block.original))
+                keys.append((i, claim.start, claim.end))
+    scores = dict(zip(keys, await similarity.scores(pairs), strict=True))
+    out: dict[tuple[int, int, int], float] = {}
+    for i, claims in found.items():
+        block = blocks[i]
+        for claim in claims:
+            if not block.rewritten:
+                sim = 1.0
+            elif not block.original:
+                sim = 0.0
+            else:
+                sim = max(scores.get(i, 0.0), scores.get((i, claim.start, claim.end), 0.0))
+            out[(i, claim.start, claim.end)] = round(sim, 4)
+    return out
 
 
 async def verify(
@@ -153,49 +200,55 @@ async def verify(
     llm: StructuredLLM,
     similarity: Similarity,
     threshold: float,
+    ignore: Sequence[str] = (),
 ) -> Verification:
     """Claims for every bullet. Blocked claims are cut from the text before anything is stored."""
     out = list(blocks)
     indexes = [i for i, b in enumerate(out) if b.kind == "bullet" and b.text]
     llm_found, note = await _llm_claims(out, indexes, llm)
-    pairs = [(out[i].text, out[i].original) for i in indexes]
-    sims = dict(zip(indexes, await similarity.scores(pairs), strict=True))
-    options = {
-        "ledger": ledger,
-        "employers": employers,
-        "taxonomy": taxonomy,
-        "threshold": threshold,
-    }
+    find = {"employers": employers, "taxonomy": taxonomy, "ignore": ignore}
+    found = {i: _find(out[i], [c for b, c in llm_found if b == i], **find) for i in indexes}  # type: ignore[arg-type]
+    sims = await _claim_similarities(out, found, similarity)
+    rules = {"ledger": ledger, "taxonomy": taxonomy, "threshold": threshold}
+
     drafts: list[Draft] = []
     for i in indexes:
         block = out[i]
-        sim = 1.0 if not block.rewritten else round(sims[i], 4)
-        routed = _route_block(block, [c for b, c in llm_found if b == i], sim, **options)  # type: ignore[arg-type]
-        blocked = [(c, r) for c, r in routed if r.bucket == "blocked"]
+        routed = [
+            (c, _route(c, block, sims[(i, c.start, c.end)], **rules), sims[(i, c.start, c.end)])  # type: ignore[arg-type]
+            for c in found[i]
+        ]
+        blocked = [(c, r, s) for c, r, s in routed if r.bucket == "blocked"]
         if blocked:
             text = block.text
-            for claim, _ in sorted(blocked, key=lambda pair: -pair[0].start):
+            for claim, _, _ in sorted(blocked, key=lambda item: -item[0].start):
                 text = replace_span(text, claim.start, claim.end, "")
             block = out[i] = replace(block, text="" if too_short(text) else text)
             drafts.extend(
-                Draft(i, replace(c, start=0, end=0), "blocked", r.normalized, sim, block.line_id)
-                for c, r in blocked
+                Draft(i, replace(c, start=0, end=0), "blocked", r.normalized, s, block.line_id)
+                for c, r, s in blocked
             )
-            # The wording changed, so the rest is found again by code on the new text.
+            # The wording changed, so the rest is found and scored again on the new text.
+            again = {i: _find(block, [], **find)} if block.text else {}  # type: ignore[arg-type]
+            new_sims = await _claim_similarities(out, again, similarity)
             routed = [
-                (c, r)
-                for c, r in (_route_block(block, [], sim, **options) if block.text else [])  # type: ignore[arg-type]
+                (c, r, new_sims[(i, c.start, c.end)])
+                for c in again.get(i, [])
+                for r in [_route(c, block, new_sims[(i, c.start, c.end)], **rules)]  # type: ignore[arg-type]
                 if r.bucket != "blocked"
             ]
-        drafts.extend(Draft(i, c, r.bucket, r.normalized, sim, block.line_id) for c, r in routed)
+        drafts.extend(Draft(i, c, r.bucket, r.normalized, s, block.line_id) for c, r, s in routed)
     return Verification(out, drafts, note)
 
 
-def claim_rows(application_id: int, user_id: int, drafts: Sequence[Draft]) -> list[Claim]:
+def claim_rows(
+    application_id: int, user_id: int, drafts: Sequence[Draft], document: str = "cv"
+) -> list[Claim]:
     return [
         Claim(
             application_id=application_id,
             user_id=user_id,
+            document=document,
             block_index=d.block_index,
             text=d.claim.text[:500],
             type=d.claim.type,
@@ -204,7 +257,7 @@ def claim_rows(application_id: int, user_id: int, drafts: Sequence[Draft]) -> li
             span_end=d.claim.end,
             bucket=d.bucket,
             origin=d.claim.origin,
-            cited_line_id=d.line_id,
+            cited_line_id=d.line_id or None,
             similarity=d.similarity,
         )
         for d in drafts

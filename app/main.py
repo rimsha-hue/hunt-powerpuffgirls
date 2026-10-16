@@ -159,10 +159,11 @@ def create_app(
             index: LocationIndex = await app.state.locations
             return index
 
+        app.state.email = email or build_email(settings)
         app.state.scout_runner = ScoutRunner(
             session_factory=app.state.session_factory,
             sources=job_sources or build_job_sources(settings, http),
-            email=email or build_email(settings),
+            email=app.state.email,
             taxonomy=app.state.taxonomy,
             locations=location_index,
             settings=settings,

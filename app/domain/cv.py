@@ -97,6 +97,11 @@ def base_blocks(lines: Sequence[SourceLine]) -> list[Block]:
     return blocks
 
 
+def plain(text: str) -> str:
+    """Typographic hyphens, spaces and "×" as plain characters, so matching stays exact."""
+    return text.translate(_PLAIN)
+
+
 def apply_rewrites(
     blocks: Sequence[Block], rewrites: Sequence[tuple[int, str]]
 ) -> tuple[list[Block], int]:

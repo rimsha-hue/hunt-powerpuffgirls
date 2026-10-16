@@ -37,8 +37,26 @@ async def source_lines(db: AsyncSession, user_id: int) -> list[SourceLine]:
     return [SourceLine(r.id, r.line_no, r.section, r.text, r.bulleted) for r in rows.scalars()]
 
 
-def blocks_of(application: Application) -> list[Block]:
-    return [Block.from_json(b) for b in application.tailored_cv_json]
+Document = Literal["cv", "email", "cover_letter"]
+
+
+def blocks_of(application: Application, document: str = "cv") -> list[Block]:
+    data = {
+        "cv": application.tailored_cv_json,
+        "email": application.email_blocks_json,
+        "cover_letter": application.cover_letter_blocks_json,
+    }[document]
+    return [Block.from_json(b) for b in data]
+
+
+def set_blocks(application: Application, document: str, blocks: Sequence[Block]) -> None:
+    data = [b.to_json() for b in blocks]
+    if document == "cv":
+        application.tailored_cv_json = data
+    elif document == "email":
+        application.email_blocks_json = data
+    else:
+        application.cover_letter_blocks_json = data
 
 
 def ats_after(
@@ -172,16 +190,27 @@ async def decide(
     threshold: float,
     now: datetime,
 ) -> None:
-    """Gate 2: the user's answer to one claim. Only open (Needs-you) claims take answers."""
-    if application.status != "draft":
+    """Gates 2 and 3: the user's answer to one claim in the CV, email or cover letter. Only open
+    (Needs-you) claims take answers, and only while their document can still change."""
+    document = claim.document
+    if document == "cv" and application.status != "draft":
         raise DecisionError("This CV is already approved.")
+    if application.sent_at is not None:
+        raise DecisionError("This application was already sent.")
     if claim.bucket != "needs_you":
         raise DecisionError("Only claims that need you can be answered.")
+    # Block numbers are per document, so only this document's claims move together.
     claims = list(
-        (await db.execute(select(Claim).where(Claim.application_id == application.id))).scalars()
+        (
+            await db.execute(
+                select(Claim).where(
+                    Claim.application_id == application.id, Claim.document == document
+                )
+            )
+        ).scalars()
     )
     claim = next(c for c in claims if c.id == claim.id)
-    blocks = blocks_of(application)
+    blocks = blocks_of(application, document)
     if action == "confirm":
         await verifier.confirm(db, claim, claims, url=url, note=note, now=now)
     elif action == "remove":
@@ -219,12 +248,14 @@ async def decide(
             bucket=claim.bucket,
         )
 
-    application.tailored_cv_json = [b.to_json() for b in blocks]
+    set_blocks(application, document, blocks)
     application.updated_at = now
-    ledger, _ = await load_ledger(db, application.user_id)
-    result = ats_after(job, blocks, await source_lines(db, application.user_id), ledger, taxonomy)
-    application.ats_after = result.score
-    application.ats_after_detail_json = result.detail_json()
+    if document == "cv":
+        ledger, _ = await load_ledger(db, application.user_id)
+        lines = await source_lines(db, application.user_id)
+        result = ats_after(job, blocks, lines, ledger, taxonomy)
+        application.ats_after = result.score
+        application.ats_after_detail_json = result.detail_json()
 
 
 async def approve_cv(db: AsyncSession, application: Application, now: datetime) -> None:
@@ -232,7 +263,9 @@ async def approve_cv(db: AsyncSession, application: Application, now: datetime) 
     open_claims = (
         await db.execute(
             select(Claim.id).where(
-                Claim.application_id == application.id, Claim.bucket == "needs_you"
+                Claim.application_id == application.id,
+                Claim.document == "cv",
+                Claim.bucket == "needs_you",
             )
         )
     ).all()

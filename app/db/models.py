@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -218,6 +219,11 @@ class Application(Base):
     questions_asked: Mapped[int] = mapped_column(Integer, default=0)
     cv_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cover_letter: Mapped[str | None] = mapped_column(Text)
+    # Sentence blocks of the email body and cover letter, verified like the CV (Phase 4).
+    email_blocks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    cover_letter_blocks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    recipient: Mapped[str | None] = mapped_column(String(320))
+    compose_note: Mapped[str | None] = mapped_column(String(500))
     email_subject: Mapped[str | None] = mapped_column(String(300))
     email_body: Mapped[str | None] = mapped_column(Text)
     attachments_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
@@ -241,6 +247,8 @@ class Claim(Base):
         ForeignKey("applications.id", ondelete="CASCADE"), index=True
     )
     user_id: Mapped[int] = _user_fk()
+    # Which generated text the claim sits in: cv, email or cover_letter.
+    document: Mapped[str] = mapped_column(String(12), default="cv")
     block_index: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(String(500))
     type: Mapped[str] = mapped_column(String(20))
@@ -258,6 +266,24 @@ class Claim(Base):
     # confirmed | edited | removed | false, once the user answered a Needs-you claim
     user_decision: Mapped[str | None] = mapped_column(String(12))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ApplicationFile(Base):
+    """A file the user added for an application (transcript, references, samples). Kept in the
+    database: the platform's disk is not persistent, and these are small (size-capped) files."""
+
+    __tablename__ = "application_files"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = _user_fk()
+    kind: Mapped[str] = mapped_column(String(20))  # an attachment kind, e.g. "transcript"
+    filename: Mapped[str] = mapped_column(String(120))
+    content_type: Mapped[str] = mapped_column(String(100))
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Audit(Base):

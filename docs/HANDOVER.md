@@ -10,8 +10,8 @@ Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC
 | 1 | Auth, demo seed, resume parsing, evidence ledger, GitHub ingestion, Onboarding and Ledger screens | **Done**, plus portfolio ingestion, Google sign-in, input guardrails, AI extraction fixed (decision log). |
 | 2 | Scout with fallbacks, dedupe, Matcher, ATS scorer, Classifier, Jobs screen, digest email with signed Apply links | **Done.** Verified live: 3 JSearch queries, 27 new jobs, digest delivered with working Apply links. |
 | 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | **Done.** Verified live with Groq + bge-small: 7 bullets rewritten, 26 claims checked automatically, 1 sent to the user. |
-| 4 | Email apply flow (attachments, humanized email, SMTP send) | **Next.** Not started |
-| 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | Not started |
+| 4 | Email apply flow (attachments, humanized email, SMTP send) | **Done.** Verified live: Groq draft, one invented claim flagged, sent through Gmail with the CV attached, job Applied, follow-up in 7 days. |
+| 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | **Next.** Not started |
 | 6 | Coach and growth plans with GitHub verification; Activity screen | Not started |
 | 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | Not started |
 
@@ -105,6 +105,28 @@ every email to one inbox), and set `INTERNAL_TOKEN` if a cron will call `/intern
 - Frontend: Apply Workspace (`/jobs/:id/workspace`): job text, tailored CV with badges and source
   tooltips, Needs-you panel (keys Y, E, R), ATS gauge, counters, Approve and download.
 
+## 5c. Phase 4: what was built
+
+- Migration 0007: `applications.email_blocks_json`, `cover_letter_blocks_json`, `recipient`,
+  `compose_note`; `claims.document` (cv, email, cover_letter); `application_files` (uploads kept
+  in Postgres, PDF/DOCX by magic bytes, size from `MAX_UPLOAD_MB`).
+- Composer (`services/composer.py`): email 120-180 words and, when the posting asks, a cover letter,
+  written from the approved CV only. Style or length problems get one rewrite, then a note for the
+  user. Without an LLM, a plain letter from the user's own CV lines. Subject follows the posting's
+  requested format (`domain/compose.py`), else "Application for {title}, {name}".
+- Verification: prose is split into sentences; each is checked against the resume line it is
+  closest to (`MIN_SOURCE_SIMILARITY`), with per-claim similarity the better of sentence and clause.
+  The job's own title and company are not claims. The signature is not verified.
+- Gate 3 (`send`): CV approved, no open claim in any document, recipient set, every attachment
+  attached, uploaded or waived. Sends CV PDF, cover letter PDF and uploads, Reply-To the user.
+  Status path checked before sending; nothing is marked sent if SMTP fails; a sent application
+  refuses to send again. Job goes to Applied, `follow_up_due` = sent + 7 days.
+- Frontend: email panel under the workspace (To, Subject, body with badges, edit, cover letter
+  with PDF preview, attachment checklist with upload or "Send without it", blockers, Approve and
+  send, envelope animation, Applied card).
+- Sending mailbox: the server's `SMTP_USER`. For the owner's own account that is "their own
+  mailbox"; per-user mailboxes would need per-user SMTP credentials or Gmail OAuth.
+
 ## 6. Useful snippets
 
 LLM probe (prints model, OK or error type; never the key):
@@ -147,6 +169,7 @@ Check which `.env` keys are set without printing values:
 | One-line commit messages, no AI attribution | Owner's rule |
 | Recorded jobs only when every live source fails | Old postings shown when live sources merely found nothing would mislead |
 | Match score smoothed toward 50% by a prior of weight 2 | Short postings naming one skill scored 100; the ATS formula stays exactly as specified |
+| Prose verified sentence by sentence against the closest resume line | Emails and letters have no one-to-one source line; this also checks the user's own edits |
 | fpdf2 for the CV PDF instead of WeasyPrint | Pure Python: same output in Docker, CI and on Windows; text-only one-column layout is ATS-safe |
 | Gates as statuses and API calls instead of LangGraph interrupts | Each gate already persists in Postgres; LangGraph added weight without a new capability under the deadline |
 | Tailor rewrites one source line per bullet, within its entry | Merging or moving lines could attach a result to the wrong job |
