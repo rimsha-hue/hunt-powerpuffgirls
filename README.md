@@ -12,7 +12,18 @@ The full product and engineering spec lives in [CLAUDE.md](CLAUDE.md).
 | Phase | Deliverable | State |
 |---|---|---|
 | 0 | FastAPI skeleton, placeholder React page, Dockerfile, CI, `/health` | Done |
-| 1 to 7 | Auth and ledger, Scout and ATS, Tailor and Verifier, email flow, form flow, Coach, eval | Not started |
+| 1 | Auth, demo seed, resume parsing, evidence ledger, GitHub ingestion, Onboarding and Ledger screens | Done |
+| 2 to 7 | Scout and ATS, Tailor and Verifier, email flow, form flow, Coach, eval | Not started |
+
+## How the evidence ledger decides what is true
+
+1. The resume (PDF or DOCX, checked by magic bytes, 5 MB max) is split into numbered lines.
+2. **Code pass:** skills (from a curated taxonomy of 333 skills with synonyms), degrees, GPA and quantified results are extracted by deterministic parsers. This works with no LLM at all.
+3. **LLM pass (optional):** the model proposes employers, roles, certifications and projects, each citing a line number. The resume reaches the model only inside a delimited data block.
+4. **Code decides:** a proposed fact is kept only if the cited line exists and contains the fact's key tokens and every number it states. "Reduced cost by 60%" citing a line that says 40% is rejected.
+5. GitHub repo languages and topics become `skill` evidence with the repo URL as the source. Forks and unknown topics are ignored.
+
+Every fact in the ledger shows its source: the exact resume line, or the repo link.
 
 ## Run locally
 
