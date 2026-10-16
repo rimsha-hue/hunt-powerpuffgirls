@@ -38,12 +38,12 @@ export function ChipInput({ label, values, onChange, placeholder, max = 10 }: Pr
       </label>
       <div className="flex flex-wrap items-center gap-2 rounded-lg border-3 border-ink bg-white p-2">
         {values.map((value) => (
-          <span key={value} className="inline-flex items-center gap-1 rounded-full border-2 border-ink bg-signal py-0.5 pl-2.5 pr-1 text-sm font-semibold">
+          <span key={value} className="inline-flex items-center gap-1 rounded-full border-2 border-ink bg-bubbles py-0.5 pl-2.5 pr-1 text-sm font-semibold">
             {value}
             <button
               type="button"
               onClick={() => onChange(values.filter((v) => v !== value))}
-              className="grid size-5 place-items-center rounded-full hover:bg-coral"
+              className="grid size-5 place-items-center rounded-full hover:bg-blossom"
               aria-label={`Remove ${value}`}
             >
               <X className="size-3.5" aria-hidden />

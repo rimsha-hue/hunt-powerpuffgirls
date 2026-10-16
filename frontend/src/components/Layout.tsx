@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { BookCheck, Briefcase, LogOut, Rocket, Wind, Zap } from 'lucide-react'
+import { BookCheck, Briefcase, LogOut, Rocket, Wind } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api, json, type Me } from '../lib/api'
@@ -7,22 +7,12 @@ import { useCalm } from '../lib/calm'
 import { cx } from '../lib/cx'
 import { meKey, useLogout, useMe } from '../lib/session'
 import { useToast } from '../lib/toast'
+import { Logo } from './Logo'
 
 const NAV = [
   { to: '/onboarding', label: 'Onboarding', icon: Rocket },
   { to: '/ledger', label: 'Evidence ledger', icon: BookCheck },
 ]
-
-export function Logo() {
-  return (
-    <span className="flex items-center gap-2">
-      <span className="grid size-9 place-items-center rounded-lg border-3 border-ink bg-signal shadow-comic-sm">
-        <Zap className="size-5 fill-coral text-ink" strokeWidth={2.5} aria-hidden />
-      </span>
-      <span className="font-display text-2xl tracking-wide">Power Hunt</span>
-    </span>
-  )
-}
 
 function CalmToggle() {
   const { data: me } = useMe()
@@ -50,7 +40,7 @@ function CalmToggle() {
       onClick={() => mutation.mutate(!on)}
       className={cx(
         'inline-flex items-center gap-2 rounded-full border-3 border-ink px-3 py-1 font-mono text-xs font-medium',
-        on ? 'bg-signal' : 'bg-cream',
+        on ? 'bg-bubbles' : 'bg-card',
       )}
       title="Calm mode turns every animation off"
     >
@@ -69,7 +59,7 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b-3 border-ink bg-cream">
+      <header className="border-b-3 border-ink bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <NavLink to="/" aria-label="Power Hunt home">
             <Logo />
@@ -82,7 +72,7 @@ export function AppLayout() {
                 className={({ isActive }) =>
                   cx(
                     'inline-flex shrink-0 items-center gap-1.5 rounded-lg border-3 px-3 py-1.5 text-sm font-semibold',
-                    isActive ? 'border-ink bg-signal shadow-comic-sm' : 'border-transparent hover:border-ink',
+                    isActive ? 'border-ink bg-blossom shadow-comic-sm' : 'border-transparent hover:border-ink',
                   )
                 }
               >
@@ -121,7 +111,7 @@ export function AppLayout() {
           {!calm && (
             <motion.div
               key={location.pathname}
-              className="pointer-events-none fixed inset-0 z-40 origin-right bg-signal"
+              className="pointer-events-none fixed inset-0 z-40 origin-right bg-blossom"
               initial={{ scaleX: 1 }}
               animate={{ scaleX: 0 }}
               transition={{ duration: 0.2, ease: 'easeIn' }}

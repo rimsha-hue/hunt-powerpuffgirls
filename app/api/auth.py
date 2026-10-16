@@ -2,11 +2,13 @@
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import delete
 
 from app.api.deps import SESSION_COOKIE, AppSettings, CurrentUser, Db, limiter
 from app.api.schemas import LoginIn, MeOut, SignupIn, UserOut
 from app.db.models import User
+from app.integrations import google_oauth
 from app.services import audit
 from app.services.auth import (
     authenticate,
@@ -14,10 +16,17 @@ from app.services.auth import (
     create_user,
     end_session,
     get_user_by_email,
+    sign_in_with_google,
+    tokens_match,
 )
+from app.services.signing import sign, unsign
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = structlog.get_logger()
+
+OAUTH_COOKIE = "ph_oauth"
+OAUTH_COOKIE_PATH = "/api/auth/google"
+OAUTH_TTL_SECONDS = 600
 
 
 def _set_cookie(response: Response, token: str, settings: AppSettings) -> None:
@@ -74,6 +83,111 @@ async def login(
     )
     _set_cookie(response, token, settings)
     return me_out(user, session.csrf_token, settings)
+
+
+@router.get("/providers")
+async def providers(settings: AppSettings) -> dict[str, bool]:
+    return {"password": True, "google": settings.google_enabled}
+
+
+@router.get("/google/start", include_in_schema=False)
+@limiter.limit("20/minute")
+async def google_start(request: Request, settings: AppSettings) -> RedirectResponse:
+    if not settings.google_enabled or not settings.google_client_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Google sign-in is not configured.")
+    flow = google_oauth.new_flow()
+    response = RedirectResponse(
+        google_oauth.authorize_url(settings.google_client_id, settings.google_redirect_uri, flow),
+        status_code=status.HTTP_302_FOUND,
+    )
+    # State, PKCE verifier and nonce ride in a signed, short-lived cookie scoped to this flow.
+    response.set_cookie(
+        OAUTH_COOKIE,
+        sign(
+            {"state": flow.state, "verifier": flow.verifier, "nonce": flow.nonce},
+            settings.secret_key.get_secret_value(),
+            OAUTH_TTL_SECONDS,
+            purpose="google-oauth",
+        ),
+        max_age=OAUTH_TTL_SECONDS,
+        httponly=True,
+        secure=settings.is_production,
+        samesite="lax",  # Lax: the browser sends it on Google's top-level redirect back to us
+        path=OAUTH_COOKIE_PATH,
+    )
+    return response
+
+
+def _login_redirect(error: str) -> RedirectResponse:
+    response = RedirectResponse(f"/login?error={error}", status_code=status.HTTP_302_FOUND)
+    response.delete_cookie(OAUTH_COOKIE, path=OAUTH_COOKIE_PATH)
+    return response
+
+
+@router.get("/google/callback", include_in_schema=False)
+@limiter.limit("20/minute")
+async def google_callback(
+    request: Request,
+    db: Db,
+    settings: AppSettings,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    if (
+        not settings.google_enabled
+        or not settings.google_client_id
+        or not settings.google_client_secret
+    ):
+        return _login_redirect("google_unavailable")
+    if error:
+        return _login_redirect("google_cancelled")
+
+    flow = unsign(
+        request.cookies.get(OAUTH_COOKIE, ""),
+        settings.secret_key.get_secret_value(),
+        purpose="google-oauth",
+    )
+    if flow is None or not code or not tokens_match(str(flow.get("state", "")), state):
+        logger.warning("google_login_rejected", reason="state")
+        return _login_redirect("google_failed")
+
+    try:
+        id_token = await google_oauth.exchange_code(
+            request.app.state.http,
+            code=code,
+            verifier=str(flow["verifier"]),
+            client_id=settings.google_client_id,
+            client_secret=settings.google_client_secret.get_secret_value(),
+            redirect_uri=settings.google_redirect_uri,
+        )
+        identity = google_oauth.verify_id_token(
+            id_token, client_id=settings.google_client_id, nonce=str(flow["nonce"])
+        )
+    except google_oauth.GoogleAuthError as exc:
+        logger.warning("google_login_rejected", reason=str(exc))
+        return _login_redirect("google_failed")
+
+    user, created = await sign_in_with_google(
+        db, sub=identity.sub, email=identity.email, name=identity.name
+    )
+    token, _session = await create_session(db, user, days=settings.session_days)
+    audit.record(
+        db,
+        user_id=user.id,
+        actor="user",
+        action="signed_up" if created else "logged_in",
+        entity="user",
+        entity_id=user.id,
+        method="google",
+    )
+    response = RedirectResponse(
+        "/ledger" if user.profile.resume_version > 0 else "/onboarding",
+        status_code=status.HTTP_302_FOUND,
+    )
+    response.delete_cookie(OAUTH_COOKIE, path=OAUTH_COOKIE_PATH)
+    _set_cookie(response, token, settings)
+    return response
 
 
 @router.get("/me")

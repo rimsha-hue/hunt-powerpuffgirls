@@ -15,7 +15,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     APP_ENV=production \
-    PORT=3000
+    PORT=8000
 
 # WeasyPrint system libraries (used for CV PDFs from Phase 3).
 RUN apt-get update \
@@ -44,10 +44,10 @@ RUN useradd --system --no-create-home appuser \
 ENV DATABASE_URL=sqlite+aiosqlite:////srv/var/power_hunt.db
 USER appuser
 
-# 3000 is the port Alternate Clouds publishes by default. PORT must match the platform's
+# 8000 is the port Alternate Clouds publishes by default. PORT must match the platform's
 # published port, or Cloudflare returns 502.
-EXPOSE 3000
+EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\",\"3000\")}/ready', timeout=4)"
+    CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\",\"8000\")}/ready', timeout=4)"
 
 CMD ["./scripts/start.sh"]

@@ -1,15 +1,23 @@
 @import 'tailwindcss';
 
 /*
- * Palette contrast (WCAG, checked):
- *   ink on cream 17.0:1, ink on yellow 12.6:1, ink on coral 6.0:1, cream on violet 9.0:1.
- *   Coral text on cream is only 3.0:1, so coral is used as a fill with ink text, never as text.
+ * Palette: a pink, blue and green "trio" on a pastel pink page, with white cards so panels stand
+ * apart from the background. Contrast (WCAG, checked):
+ *   ink on card 17:1, ink on blossom 5.6:1, ink on bubbles 9.0:1, ink on buttercup 9.4:1,
+ *   ink on signal 12:1, ink on verified 4.9:1, card on violet 9.5:1, card on inferred 5.4:1.
+ *   Blossom is never used as text on light backgrounds; it is a fill with ink text.
+ *   Heart red is decorative only (no text on it).
  */
 @theme {
-  --color-ink: #16121f;
-  --color-cream: #fff6e5;
-  --color-coral: #ff4d6d;
+  --color-ink: #1b1530;
+  --color-page: #ffe4f0;
+  --color-card: #ffffff;
+  --color-blush: #ffd3e6;
+  --color-blossom: #ff4f9a;
+  --color-bubbles: #5cc8f5;
+  --color-buttercup: #72d572;
   --color-signal: #ffd23f;
+  --color-heart: #e8254f;
   --color-violet: #5a2a9c;
   --color-verified: #1f9d55;
   --color-inferred: #2b6cb0;
@@ -24,12 +32,17 @@
 
 @layer base {
   html {
-    background: var(--color-cream);
+    background-color: var(--color-page);
     color: var(--color-ink);
     font-family: var(--font-sans);
   }
+  body {
+    /* Faint polka dots on the page only; cards stay solid white. */
+    background-image: radial-gradient(rgb(255 79 154 / 0.12) 1.5px, transparent 1.8px);
+    background-size: 22px 22px;
+  }
   :focus-visible {
-    outline: 3px solid var(--color-coral);
+    outline: 3px solid var(--color-violet);
     outline-offset: 3px;
   }
 }
@@ -37,13 +50,21 @@
 @layer components {
   .panel {
     border: 3px solid var(--color-ink);
-    border-radius: 14px;
+    border-radius: 16px;
     box-shadow: var(--shadow-comic);
   }
-  /* Halftone dots: hero areas only. */
-  .halftone {
-    background-image: radial-gradient(rgb(22 18 31 / 0.16) 1.2px, transparent 1.6px);
-    background-size: 10px 10px;
+  /* Concentric pastel hearts: hero areas only. */
+  .hearts {
+    background: var(--color-blush) url('/hearts.svg') center / cover no-repeat;
+  }
+  /* Bubbly sticker lettering for the wordmark and big headlines. */
+  .wordmark {
+    font-family: var(--font-display);
+    letter-spacing: 0.04em;
+    color: var(--color-blossom);
+    -webkit-text-stroke: 2px var(--color-ink);
+    paint-order: stroke fill;
+    text-shadow: 3px 3px 0 var(--color-ink);
   }
   .lift {
     transition: transform 150ms ease, box-shadow 150ms ease;

@@ -40,7 +40,7 @@ function FilterChips<T extends string>({
           onClick={() => onChange(option.value)}
           className={cx(
             'shrink-0 rounded-full border-2 border-ink px-3 py-1 font-mono text-xs font-medium uppercase',
-            value === option.value ? 'bg-ink text-cream' : 'bg-white',
+            value === option.value ? 'bg-ink text-card' : 'bg-white',
           )}
         >
           {option.label}
@@ -97,7 +97,7 @@ export default function Ledger() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel halftone flex flex-wrap items-end justify-between gap-4 bg-signal p-6">
+      <section className="panel hearts flex flex-wrap items-end justify-between gap-4 p-6">
         <div>
           <h1 className="font-display text-5xl tracking-wide">Evidence ledger</h1>
           <p className="mt-1 max-w-2xl font-semibold">
@@ -105,7 +105,7 @@ export default function Ledger() {
             link. Delete anything you don't want used.
           </p>
         </div>
-        <span className="rounded-lg border-3 border-ink bg-cream px-3 py-1.5 font-mono text-sm font-medium">
+        <span className="rounded-lg border-3 border-ink bg-card px-3 py-1.5 font-mono text-sm font-medium">
           {ledger.isPending ? '…' : `${groups.length} facts · ${rows.length} proofs`}
         </span>
       </section>
@@ -140,7 +140,7 @@ export default function Ledger() {
           ))}
         </div>
       ) : groups.length === 0 ? (
-        <div className="panel bg-cream p-8 text-center">
+        <div className="panel bg-card p-8 text-center">
           <p className="font-display text-3xl tracking-wide">{filtered ? 'No matches' : 'No evidence yet'}</p>
           {type === 'role' || type === 'employer' ? (
             <p className="mt-2 font-semibold">
@@ -158,9 +158,9 @@ export default function Ledger() {
           )}
         </div>
       ) : (
-        <div className="panel overflow-hidden bg-cream">
+        <div className="panel overflow-hidden bg-card">
           <table className="w-full text-left text-sm">
-            <thead className="hidden border-b-3 border-ink bg-violet text-cream sm:table-header-group">
+            <thead className="hidden border-b-3 border-ink bg-violet text-card sm:table-header-group">
               <tr>
                 <th className="px-4 py-2 font-mono text-xs font-medium uppercase">Type</th>
                 <th className="px-4 py-2 font-mono text-xs font-medium uppercase">Fact</th>
@@ -203,7 +203,7 @@ export default function Ledger() {
                     <button
                       type="button"
                       onClick={() => remove.mutate(group)}
-                      className="inline-flex items-center gap-1 rounded-lg border-2 border-transparent px-2 py-1 text-xs font-semibold hover:border-ink hover:bg-coral"
+                      className="inline-flex items-center gap-1 rounded-lg border-2 border-transparent px-2 py-1 text-xs font-semibold hover:border-ink hover:bg-blossom"
                       aria-label={`Delete fact: ${group.claim_text}`}
                     >
                       <Trash2 className="size-4" aria-hidden />

@@ -1,5 +1,7 @@
 import {
   Award,
+  Eye,
+  EyeOff,
   FileText,
   FolderGit2,
   Globe,
@@ -7,17 +9,17 @@ import {
   UserCheck,
 } from 'lucide-react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import type { Evidence, FactSource, FactType } from '../lib/api'
 import { cx } from '../lib/cx'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-coral text-ink shadow-comic-sm hover:-translate-x-0.5 hover:-translate-y-0.5',
-  secondary: 'bg-cream text-ink shadow-comic-sm hover:-translate-x-0.5 hover:-translate-y-0.5',
+  primary: 'bg-blossom text-ink shadow-comic-sm hover:-translate-x-0.5 hover:-translate-y-0.5',
+  secondary: 'bg-card text-ink shadow-comic-sm hover:-translate-x-0.5 hover:-translate-y-0.5',
   ghost: 'border-transparent bg-transparent text-ink hover:border-ink',
-  danger: 'bg-cream text-ink hover:bg-coral',
+  danger: 'bg-card text-ink hover:bg-blossom',
 }
 
 export function Button({
@@ -42,7 +44,7 @@ export function Button({
 }
 
 export function Panel({ className, children }: { className?: string; children: ReactNode }) {
-  return <section className={cx('panel bg-cream p-5', className)}>{children}</section>
+  return <section className={cx('panel bg-card p-5', className)}>{children}</section>
 }
 
 export function PanelTitle({ children, kicker }: { children: ReactNode; kicker?: string }) {
@@ -71,6 +73,42 @@ export function Field({
         {...props}
         className="w-full rounded-lg border-3 border-ink bg-white px-3 py-2 text-ink placeholder:text-ink/50"
       />
+      {hint && <p className="mt-1 text-xs">{hint}</p>}
+    </div>
+  )
+}
+
+/** Password input with a show/hide toggle. The toggle never submits the form. */
+export function PasswordField({
+  label,
+  hint,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { label: string; hint?: string }) {
+  const id = useId()
+  const [visible, setVisible] = useState(false)
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-sm font-semibold">
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          id={id}
+          {...props}
+          type={visible ? 'text' : 'password'}
+          className="w-full rounded-lg border-3 border-ink bg-white py-2 pl-3 pr-12 text-ink placeholder:text-ink/50"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? 'Hide password' : 'Show password'}
+          aria-pressed={visible}
+          aria-controls={id}
+          className="absolute right-1.5 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-md hover:bg-blush"
+        >
+          {visible ? <EyeOff className="size-5" aria-hidden /> : <Eye className="size-5" aria-hidden />}
+        </button>
+      </div>
       {hint && <p className="mt-1 text-xs">{hint}</p>}
     </div>
   )
@@ -119,14 +157,14 @@ export function SourceBadge({ fact }: { fact: Evidence }) {
 }
 
 const TYPE_STYLES: Record<FactType, string> = {
-  skill: 'bg-signal',
-  metric: 'bg-coral',
-  employer: 'bg-violet text-cream',
-  role: 'bg-violet text-cream',
-  degree: 'bg-white',
-  certification: 'bg-white',
-  project: 'bg-cream',
-  personal: 'bg-cream',
+  skill: 'bg-bubbles',
+  metric: 'bg-blossom',
+  employer: 'bg-violet text-card',
+  role: 'bg-violet text-card',
+  degree: 'bg-buttercup',
+  certification: 'bg-buttercup',
+  project: 'bg-blush',
+  personal: 'bg-blush',
 }
 
 export function TypeTag({ type }: { type: FactType }) {
@@ -139,7 +177,7 @@ export function TypeTag({ type }: { type: FactType }) {
 
 export function ErrorNote({ children }: { children: ReactNode }) {
   return (
-    <p role="alert" className="rounded-lg border-3 border-ink bg-coral px-3 py-2 text-sm font-semibold">
+    <p role="alert" className="rounded-lg border-3 border-ink bg-blossom px-3 py-2 text-sm font-semibold">
       {children}
     </p>
   )

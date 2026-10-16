@@ -6,4 +6,4 @@ alembic upgrade head
 # A seed failure must not take the site down; it is logged and retried on the next start.
 python -m app.seed || echo '{"event": "seed_failed", "level": "error"}'
 
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-3000}" --proxy-headers --forwarded-allow-ips='*'
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers --forwarded-allow-ips='*'

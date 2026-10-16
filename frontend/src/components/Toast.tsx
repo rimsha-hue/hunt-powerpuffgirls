@@ -33,12 +33,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={calm ? { opacity: 0 } : { opacity: 0, y: 8 }}
               transition={{ duration: 0.18 }}
-              className={`relative rounded-2xl border-3 border-ink px-4 py-3 text-sm font-semibold shadow-comic-sm ${t.tone === 'error' ? 'bg-coral' : 'bg-white'}`}
+              className={`relative rounded-2xl border-3 border-ink px-4 py-3 text-sm font-semibold shadow-comic-sm ${t.tone === 'error' ? 'bg-blossom' : 'bg-white'}`}
               role={t.tone === 'error' ? 'alert' : 'status'}
             >
               {t.text}
               <span
-                className={`absolute -bottom-2 right-8 size-3.5 rotate-45 border-b-3 border-r-3 border-ink ${t.tone === 'error' ? 'bg-coral' : 'bg-white'}`}
+                className={`absolute -bottom-2 right-8 size-3.5 rotate-45 border-b-3 border-r-3 border-ink ${t.tone === 'error' ? 'bg-blossom' : 'bg-white'}`}
                 aria-hidden
               />
             </motion.div>
