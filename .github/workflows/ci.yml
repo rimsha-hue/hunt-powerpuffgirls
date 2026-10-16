@@ -75,8 +75,8 @@ jobs:
         run: docker build -t power-hunt:ci .
       - name: Smoke test container
         run: |
-          docker run -d --name ph -p 8000:8000 -e SECRET_KEY=ci-only-not-a-secret-0123456789abcdef power-hunt:ci
-          for i in $(seq 1 30); do curl -fsS http://localhost:8000/ready && break; sleep 1; done
-          curl -fsS http://localhost:8000/health
-          curl -fsS http://localhost:8000/ | grep -q "Power Hunt"
+          docker run -d --name ph -p 3000:3000 -e SECRET_KEY=ci-only-not-a-secret-0123456789abcdef power-hunt:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:3000/ready && break; sleep 1; done
+          curl -fsS http://localhost:3000/health
+          curl -fsS http://localhost:3000/ | grep -q "Power Hunt"
           docker logs ph
