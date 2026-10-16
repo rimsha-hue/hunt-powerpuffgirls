@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+  <!-- Concentric hearts in pastel pinks: decorative, light enough for ink text on top. -->
+  <defs>
+    <path id="h" d="M0 30 C -32 6, -48 -14, -48 -34 A 24 24 0 0 1 0 -48 A 24 24 0 0 1 48 -34 C 48 -14, 32 6, 0 30 Z"/>
+  </defs>
+  <rect width="1200" height="800" fill="#FFD3E6"/>
+  <g transform="translate(600 470)">
+    <use href="#h" transform="scale(26)" fill="#FFC2DC"/>
+    <use href="#h" transform="scale(21)" fill="#FFD3E6"/>
+    <use href="#h" transform="scale(16.5)" fill="#FFC2DC"/>
+    <use href="#h" transform="scale(12.5)" fill="#FFD3E6"/>
+    <use href="#h" transform="scale(9)" fill="#FFC2DC"/>
+    <use href="#h" transform="scale(6)" fill="#FFD3E6"/>
+    <use href="#h" transform="scale(3.4)" fill="#FFC2DC"/>
+    <use href="#h" transform="scale(1.4)" fill="#FFE6F1"/>
+  </g>
+</svg>

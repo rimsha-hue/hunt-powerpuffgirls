@@ -31,11 +31,14 @@ def _user_fk() -> Mapped[int]:
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("google_sub", name="uq_users_google_sub"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)
     name: Mapped[str] = mapped_column(String(200), default="")
+    # Empty for accounts created through Google: no password login is possible for them.
     password_hash: Mapped[str] = mapped_column(String(255))
+    google_sub: Mapped[str | None] = mapped_column(String(255))
     github_username: Mapped[str | None] = mapped_column(String(100))
     portfolio_url: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

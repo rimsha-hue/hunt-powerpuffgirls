@@ -46,14 +46,47 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def create_user(db: AsyncSession, *, email: str, password: str, name: str = "") -> User:
+async def create_user(
+    db: AsyncSession,
+    *,
+    email: str,
+    password: str | None,
+    name: str = "",
+    google_sub: str | None = None,
+) -> User:
+    """`password=None` creates an account with no password (it signs in through Google only)."""
     user = User(
-        email=email.strip().lower(), password_hash=hash_password(password), name=name.strip()
+        email=email.strip().lower(),
+        password_hash=hash_password(password) if password is not None else "",
+        name=name.strip(),
+        google_sub=google_sub,
     )
     user.profile = Profile()
     db.add(user)
     await db.flush()
     return user
+
+
+async def sign_in_with_google(
+    db: AsyncSession, *, sub: str, email: str, name: str
+) -> tuple[User, bool]:
+    """(user, created). Match by Google account id, then by the verified email, else create.
+
+    Linking by email is safe because Google has verified the address: whoever signs in owns it.
+    """
+    result = await db.execute(
+        select(User).where(User.google_sub == sub).options(selectinload(User.profile))
+    )
+    user = result.scalar_one_or_none()
+    if user is not None:
+        return user, False
+    user = await get_user_by_email(db, email)
+    if user is not None:
+        user.google_sub = sub
+        if not user.name and name:
+            user.name = name
+        return user, False
+    return await create_user(db, email=email, password=None, name=name, google_sub=sub), True
 
 
 async def authenticate(db: AsyncSession, email: str, password: str) -> User | None:

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
 
     # Sessions and auth.
     session_days: int = Field(default=7, ge=1, le=30)
+    # Google sign-in (optional). Redirect URI to register: {APP_BASE_URL}/api/auth/google/callback
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
 
     # Demo account for judges. Credentials live only in env vars, never in the repo.
     demo_user_email: str | None = None
@@ -70,6 +73,18 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(
+            self.google_client_id
+            and self.google_client_secret
+            and self.google_client_secret.get_secret_value()
+        )
+
+    @property
+    def google_redirect_uri(self) -> str:
+        return f"{self.app_base_url.rstrip('/')}/api/auth/google/callback"
 
     def assert_safe_for_production(self) -> None:
         if self.is_production and self.secret_key.get_secret_value() == "dev-only-insecure-key":

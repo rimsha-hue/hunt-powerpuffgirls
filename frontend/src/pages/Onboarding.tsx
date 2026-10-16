@@ -29,7 +29,7 @@ function StepNumber({ n, done }: { n: number; done: boolean }) {
     <span
       className={cx(
         'grid size-9 shrink-0 place-items-center rounded-full border-3 border-ink font-mono text-sm font-medium',
-        done ? 'bg-verified text-cream' : 'bg-signal',
+        done ? 'bg-verified text-ink' : 'bg-bubbles',
       )}
       aria-label={done ? `Step ${n}, done` : `Step ${n}`}
     >
@@ -85,7 +85,7 @@ function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; 
         }}
         className={cx(
           'flex cursor-pointer flex-col items-center gap-2 rounded-xl border-3 border-dashed border-ink p-6 text-center',
-          dragging ? 'bg-signal' : 'bg-white hover:bg-signal/40',
+          dragging ? 'bg-blush' : 'bg-white hover:bg-blush/60',
         )}
       >
         <UploadCloud className="size-8" aria-hidden />
@@ -247,7 +247,7 @@ function TargetsStep({ profile }: { profile: Profile }) {
             step={5}
             value={threshold}
             onChange={(e) => setThreshold(Number(e.target.value))}
-            className="w-full accent-coral"
+            className="w-full accent-blossom"
           />
         </div>
       </div>
@@ -303,7 +303,7 @@ export default function Onboarding() {
   const data = profile.data
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel halftone bg-signal p-6">
+      <section className="panel hearts p-6">
         <h1 className="font-display text-5xl tracking-wide">Suit up</h1>
         <p className="mt-2 max-w-2xl font-semibold">
           Your squad only writes what it can prove. Give it your resume and GitHub, and watch the evidence ledger
@@ -319,7 +319,7 @@ export default function Onboarding() {
           <TargetsStep key={data.resume_version} profile={data} />
           <Link
             to="/ledger"
-            className="inline-flex items-center justify-center gap-2 self-start rounded-lg border-3 border-ink bg-violet px-5 py-2.5 font-semibold text-cream shadow-comic-sm"
+            className="inline-flex items-center justify-center gap-2 self-start rounded-lg border-3 border-ink bg-violet px-5 py-2.5 font-semibold text-card shadow-comic-sm"
           >
             Open my evidence ledger <ArrowRight className="size-4" aria-hidden />
           </Link>

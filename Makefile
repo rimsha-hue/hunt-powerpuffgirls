@@ -32,7 +32,7 @@ build:
 	docker build -t $(IMAGE) .
 
 run: build
-	docker run --rm -p 3000:3000 -e SECRET_KEY=local-dev-only-change-me-0123456789 $(IMAGE)
+	docker run --rm -p 8000:8000 -e SECRET_KEY=local-dev-only-change-me-0123456789 $(IMAGE)
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage frontend/dist

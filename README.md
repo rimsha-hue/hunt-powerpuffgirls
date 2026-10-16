@@ -42,8 +42,8 @@ Or run the production image exactly as it deploys:
 
 ```bash
 docker build -t power-hunt .
-docker run -p 3000:3000 -e SECRET_KEY=change-me-to-something-long power-hunt
-# open http://localhost:3000
+docker run -p 8000:8000 -e SECRET_KEY=change-me-to-something-long power-hunt
+# open http://localhost:8000
 ```
 
 ## Checks
@@ -68,8 +68,8 @@ CI (`.github/workflows/ci.yml`) runs all of the above, plus gitleaks, frontend l
 
 1. Create a Neon Postgres database and copy its connection string.
 2. In Alternate Clouds, create a service from this GitHub repo using the root `Dockerfile`.
-3. **Ports:** the platform publishes `3000` by default, and the container listens on `3000` by default. Set the container port to `3000`. If you change it, the `PORT` variable must match it, or Cloudflare returns a 502.
-4. **Variables tab:** set at least `SECRET_KEY` (48+ random chars), `DATABASE_URL` (Neon), `APP_BASE_URL` (your public URL) and `PORT=3000`. The full list is in [.env.example](.env.example).
+3. **Ports:** the platform publishes `8000` by default, and the container listens on `8000` by default. Set the container port to `8000`. If you change it, the `PORT` variable must match it, or Cloudflare returns a 502.
+4. **Variables tab:** set at least `SECRET_KEY` (48+ random chars), `DATABASE_URL` (Neon), `APP_BASE_URL` (your public URL) and `PORT=8000`. The full list is in [.env.example](.env.example).
 5. Rebuild, wait for success, then Deploy. Open `/health` on the public URL to confirm.
 6. If anything fails, read the Logs tab first. Logs are JSON, with event names and ids only.
 

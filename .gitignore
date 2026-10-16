@@ -24,3 +24,6 @@ uploads/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Source media; the web-optimised copy lives in frontend/public/media
+assets/
