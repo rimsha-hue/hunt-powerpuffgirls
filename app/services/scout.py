@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Evidence, Job, ResumeLine, User
-from app.domain.ats import Keyword, cv_from_lines, extract_keywords, score_cv
+from app.domain.ats import CvDocument, Keyword, cv_from_lines, extract_keywords, score_cv
 from app.domain.classify import classify
 from app.domain.jobs import (
     RELEVANCE_THRESHOLD,
@@ -114,6 +114,70 @@ async def _collect(
         report.fetched += len(postings)
         found.extend((p, source.live) for p in postings)
     return found
+
+
+async def scoring_context(db: AsyncSession, user_id: int) -> tuple[set[str], CvDocument]:
+    """The user's proven skills and their resume as a CV document, for scoring jobs."""
+    ledger_skills = set(
+        (
+            await db.execute(
+                select(Evidence.normalized_value).where(
+                    Evidence.user_id == user_id, Evidence.type == "skill"
+                )
+            )
+        ).scalars()
+    )
+    resume = await db.execute(
+        select(ResumeLine.section, ResumeLine.text)
+        .where(ResumeLine.user_id == user_id)
+        .order_by(ResumeLine.line_no)
+    )
+    return ledger_skills, cv_from_lines((section, text) for section, text in resume)
+
+
+def build_job(
+    user_id: int,
+    posting: JobPosting,
+    digest: str,
+    *,
+    relevance: float,
+    places: Sequence[Place],
+    ledger_skills: set[str],
+    cv: CvDocument,
+    taxonomy: Taxonomy,
+    now: datetime,
+) -> Job:
+    """A scored, classified job: frozen ATS keywords and "before" score, match, apply method."""
+    keywords = extract_keywords(posting.description, taxonomy, company=posting.company)
+    ats = score_cv(keywords, cv, taxonomy)
+    fit = match_job(keywords, ledger_skills, relevance, location_fit(posting, places))
+    how = classify(posting.description, posting.apply_url or posting.url)
+    return Job(
+        user_id=user_id,
+        source=posting.source,
+        external_id=posting.external_id,
+        dedupe_hash=digest,
+        title=posting.title,
+        company=posting.company,
+        location=posting.location,
+        remote=posting.remote,
+        url=posting.url,
+        description=posting.description,
+        posted_at=posting.posted_at,
+        fetched_at=now,
+        apply_method=how.method,
+        apply_email=how.apply_email,
+        apply_url=how.apply_url,
+        required_attachments=list(how.attachments),
+        ats_keywords_json=[k.to_json() for k in keywords],
+        ats_before=ats.score,
+        ats_detail_json=ats.detail_json(),
+        match_score=fit.score,
+        matched_skills=fit.matched_skills,
+        missing_skills=fit.missing_skills,
+        status="new",
+        status_changed_at=now,
+    )
 
 
 def _as_posting(job: Job) -> JobPosting:
@@ -217,21 +281,7 @@ async def run_scout(
         seen_ids.add((source_name, external_id))
         seen_hashes.add(digest)
 
-    ledger_skills = set(
-        (
-            await db.execute(
-                select(Evidence.normalized_value).where(
-                    Evidence.user_id == user.id, Evidence.type == "skill"
-                )
-            )
-        ).scalars()
-    )
-    resume = await db.execute(
-        select(ResumeLine.section, ResumeLine.text)
-        .where(ResumeLine.user_id == user.id)
-        .order_by(ResumeLine.line_no)
-    )
-    cv = cv_from_lines((section, text) for section, text in resume)
+    ledger_skills, cv = await scoring_context(db, user.id)
 
     report.rescored = await _rescore_open_jobs(db, user.id, roles, places, ledger_skills)
 
@@ -244,36 +294,17 @@ async def run_scout(
         seen_ids.add((posting.source, posting.external_id))
         seen_hashes.add(digest)
 
-        keywords = extract_keywords(posting.description, taxonomy, company=posting.company)
-        ats = score_cv(keywords, cv, taxonomy)
-        fit = match_job(keywords, ledger_skills, relevance, location_fit(posting, places))
-        how = classify(posting.description, posting.apply_url or posting.url)
         new_jobs.append(
-            Job(
-                user_id=user.id,
-                source=posting.source,
-                external_id=posting.external_id,
-                dedupe_hash=digest,
-                title=posting.title,
-                company=posting.company,
-                location=posting.location,
-                remote=posting.remote,
-                url=posting.url,
-                description=posting.description,
-                posted_at=posting.posted_at,
-                fetched_at=now,
-                apply_method=how.method,
-                apply_email=how.apply_email,
-                apply_url=how.apply_url,
-                required_attachments=list(how.attachments),
-                ats_keywords_json=[k.to_json() for k in keywords],
-                ats_before=ats.score,
-                ats_detail_json=ats.detail_json(),
-                match_score=fit.score,
-                matched_skills=fit.matched_skills,
-                missing_skills=fit.missing_skills,
-                status="new",
-                status_changed_at=now,
+            build_job(
+                user.id,
+                posting,
+                digest,
+                relevance=relevance,
+                places=places,
+                ledger_skills=ledger_skills,
+                cv=cv,
+                taxonomy=taxonomy,
+                now=now,
             )
         )
     db.add_all(new_jobs)
@@ -295,3 +326,52 @@ async def run_scout(
         failed_sources=[o.name for o in report.sources if o.error],
     )
     return report
+
+
+async def import_posting(
+    db: AsyncSession,
+    user: User,
+    posting: JobPosting,
+    *,
+    taxonomy: Taxonomy,
+    locations: LocationIndex,
+    now: datetime,
+) -> tuple[Job, bool]:
+    """A posting the user found themselves (Gate 1 already: they chose it). Returns (job,
+    created); an existing copy of the same posting is returned instead of a duplicate."""
+    digest = dedupe_hash(posting.company, posting.title, posting.location)
+    existing = (
+        await db.execute(
+            select(Job).where(
+                Job.user_id == user.id,
+                (Job.dedupe_hash == digest)
+                | ((Job.source == posting.source) & (Job.external_id == posting.external_id)),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing, False
+    places = target_places(user.profile.target_locations, locations)
+    ledger_skills, cv = await scoring_context(db, user.id)
+    job = build_job(
+        user.id,
+        posting,
+        digest,
+        relevance=best_role_relevance(user.profile.target_roles, posting.title),
+        places=places,
+        ledger_skills=ledger_skills,
+        cv=cv,
+        taxonomy=taxonomy,
+        now=now,
+    )
+    db.add(job)
+    await db.flush()
+    audit.record(
+        db,
+        user_id=user.id,
+        actor="user",
+        action="job_added_by_link",
+        entity="job",
+        entity_id=job.id,
+    )
+    return job, True

@@ -223,6 +223,12 @@ class JobDetailOut(JobOut):
     ats_coverage: float
 
 
+class JobImportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: AnyHttpUrl
+
+
 class JobStatusIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -303,6 +309,7 @@ class ApplicationOut(BaseModel):
     cv_approved_at: datetime | None
     updated_at: datetime
     email: "EmailOut | None"
+    form: "FormOut | None"
 
 
 class AttachmentOut(BaseModel):
@@ -323,6 +330,56 @@ class EmailOut(BaseModel):
     blockers: list[str]
     sent_at: datetime | None
     follow_up_due: datetime | None
+
+
+class AnswerSourceOut(BaseModel):
+    label: str
+    detail: str | None
+    url: str | None
+
+
+class CompanyFactOut(BaseModel):
+    fact: str
+    url: str
+
+
+class AnswerOut(BaseModel):
+    index: int
+    label: str
+    description: str
+    required: bool
+    field_type: str
+    options: list[str]
+    name: str
+    type: str  # factual_profile, factual_ledger, descriptive, analytical, file, consent, voluntary
+    answer: str
+    status: str  # needs_you | ready | approved
+    source: AnswerSourceOut | None
+    company_fact: CompanyFactOut | None
+    note: str | None
+    blocks: list[CvBlockOut]
+
+
+class FormOut(BaseModel):
+    source: str | None  # greenhouse | lever | page | pasted
+    url: str | None
+    answers: list[AnswerOut]
+    blockers: list[str]
+    submitted_at: datetime | None
+    follow_up_due: datetime | None
+
+
+class PasteQuestionsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=3, max_length=8000)
+
+
+class AnswerEditIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(max_length=4000)
+    remember: bool = False
 
 
 class EmailEditIn(BaseModel):

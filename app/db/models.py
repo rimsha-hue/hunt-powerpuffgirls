@@ -68,6 +68,9 @@ class Profile(Base):
     target_locations: Mapped[list[str]] = mapped_column(default=list)  # location keys
     match_threshold: Mapped[int] = mapped_column(Integer, default=60)
     calm_mode: Mapped[bool] = mapped_column(default=False)
+    # Answers to form questions the profile has no field for ("How did you hear about us?"),
+    # keyed by the question's folded label, so the user is asked once (spec Flow D).
+    saved_answers: Mapped[dict[str, Any]] = mapped_column(default=dict)
     resume_version: Mapped[int] = mapped_column(Integer, default=0)
 
     user: Mapped[User] = relationship(back_populates="profile")
@@ -208,7 +211,7 @@ class Application(Base):
     user_id: Mapped[int] = _user_fk()
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
     method: Mapped[str] = mapped_column(String(10))
-    # draft -> cv_approved (Gate 2 passed); Phase 4 adds approved and sent.
+    # draft -> cv_approved (Gate 2 passed) -> sent (email) or submitted (form, by the user).
     status: Mapped[str] = mapped_column(String(20), default="draft")
     tailored_cv_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     tailor_note: Mapped[str | None] = mapped_column(String(300))
@@ -223,6 +226,9 @@ class Application(Base):
     email_blocks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     cover_letter_blocks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     recipient: Mapped[str | None] = mapped_column(String(320))
+    # Where the form's questions came from: greenhouse, lever, page or pasted (Phase 5).
+    form_source: Mapped[str | None] = mapped_column(String(20))
+    form_url: Mapped[str | None] = mapped_column(String(1000))
     compose_note: Mapped[str | None] = mapped_column(String(500))
     email_subject: Mapped[str | None] = mapped_column(String(300))
     email_body: Mapped[str | None] = mapped_column(Text)
@@ -266,6 +272,19 @@ class Claim(Base):
     # confirmed | edited | removed | false, once the user answered a Needs-you claim
     user_decision: Mapped[str | None] = mapped_column(String(12))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CompanyFact(Base):
+    """A sentence about a company, verbatim from a fetched source, cached for a week."""
+
+    __tablename__ = "company_facts"
+    __table_args__ = (Index("ix_company_facts_key_time", "company_key", "retrieved_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_key: Mapped[str] = mapped_column(String(200))
+    fact: Mapped[str] = mapped_column(Text)
+    source_url: Mapped[str] = mapped_column(String(1000))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ApplicationFile(Base):

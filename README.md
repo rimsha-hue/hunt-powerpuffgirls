@@ -94,7 +94,7 @@ After pulling changes that add settings, add them to your `.env` without losing 
 | AI extraction | `GROQ_API_KEY`, optionally `GEMINI_API_KEY`; models in `LLM_PRIMARY_MODEL`, `LLM_FALLBACK_MODEL`, `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL`, `LLM_REASONING_EFFORT` |
 | Job search (Phase 2) | `RAPIDAPI_KEY` (JSearch, 200 requests a month free); `SCOUT_MAX_QUERIES` per run, `SCOUT_INTERVAL_HOURS`, `SCHEDULER_ENABLED`, `DEMO_MODE` (recorded jobs) |
 | Manual Scout trigger | `INTERNAL_TOKEN`, sent as `X-Internal-Token` to `POST /internal/run-scout` |
-| Company research (Phase 5) | `TAVILY_API_KEY` |
+| Company research (Phase 5) | `TAVILY_API_KEY` (without it, facts come from the job description) |
 | Email (Phases 2 and 4) | `SMTP_USER`, `SMTP_APP_PASSWORD` (Gmail app password); `APPLY_LINK_HOURS`; development only: `EMAIL_REDIRECT_TO` sends every email to one inbox |
 | Google sign-in (optional) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; redirect URI `{APP_BASE_URL}/api/auth/google/callback` |
 | Higher GitHub limits (optional) | `GITHUB_TOKEN` (fine-grained, public repos, read-only) |
@@ -106,7 +106,7 @@ Migrations run automatically at container start (`alembic upgrade head`). To cre
 ```powershell
 $env:DATABASE_URL="sqlite+aiosqlite:///./scratch.db"
 .\.venv\Scripts\alembic upgrade head
-.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0008
+.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0009
 Remove-Item scratch.db; Remove-Item Env:DATABASE_URL
 ```
 

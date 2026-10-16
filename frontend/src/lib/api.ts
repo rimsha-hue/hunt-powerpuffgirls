@@ -277,7 +277,8 @@ export interface CvBlock {
   rewritten: boolean
 }
 
-export type ClaimDocument = 'cv' | 'email' | 'cover_letter'
+/** cv, email, cover_letter, or a written form answer: "q:<index>". */
+export type ClaimDocument = 'cv' | 'email' | 'cover_letter' | `q:${number}`
 
 export interface Claim {
   id: number
@@ -314,10 +315,45 @@ export interface EmailState {
   follow_up_due: string | null
 }
 
+export type QuestionType =
+  | 'factual_profile'
+  | 'factual_ledger'
+  | 'descriptive'
+  | 'analytical'
+  | 'file'
+  | 'consent'
+  | 'voluntary'
+
+export interface FormAnswer {
+  index: number
+  label: string
+  description: string
+  required: boolean
+  field_type: 'text' | 'textarea' | 'select' | 'multiselect' | 'file' | 'checkbox'
+  options: string[]
+  name: string
+  type: QuestionType
+  answer: string
+  status: 'needs_you' | 'ready' | 'approved'
+  source: { label: string; detail: string | null; url: string | null } | null
+  company_fact: { fact: string; url: string } | null
+  note: string | null
+  blocks: CvBlock[]
+}
+
+export interface FormState {
+  source: 'greenhouse' | 'lever' | 'page' | 'pasted' | null
+  url: string | null
+  answers: FormAnswer[]
+  blockers: string[]
+  submitted_at: string | null
+  follow_up_due: string | null
+}
+
 export interface Application {
   id: number
   job_id: number
-  status: 'draft' | 'cv_approved' | 'sent'
+  status: 'draft' | 'cv_approved' | 'sent' | 'submitted'
   method: ApplyMethod
   note: string | null
   blocks: CvBlock[]
@@ -330,6 +366,7 @@ export interface Application {
   cv_approved_at: string | null
   updated_at: string
   email: EmailState | null
+  form: FormState | null
 }
 
 export type ClaimAction =

@@ -15,13 +15,16 @@ from app.api.deps import (
     AppSettings,
     CurrentUser,
     Db,
+    Locations,
     Principal,
     Runner,
+    Tax,
     can_open_job,
 )
 from app.api.ratelimit import rate_limit
 from app.api.schemas import (
     JobDetailOut,
+    JobImportIn,
     JobOut,
     JobStatusIn,
     KeywordOut,
@@ -31,10 +34,12 @@ from app.api.schemas import (
 from app.db.models import Job, User
 from app.domain.ats import Keyword
 from app.domain.status import OPEN_STATUSES, InvalidTransitionError, transition
+from app.integrations.jobs.base import JobSourceError
+from app.integrations.jobs.greenhouse import NotGreenhouseError, greenhouse_posting
 from app.services import audit
 from app.services.apply_links import ApplyLinkError, redeem
 from app.services.auth import create_session, resolve_session, tokens_match
-from app.services.scout import ScoutError
+from app.services.scout import ScoutError, import_posting
 
 router = APIRouter(tags=["jobs"])
 
@@ -89,6 +94,32 @@ async def list_jobs(
 @router.get("/api/jobs/{job_id}")
 async def get_job(job_id: int, principal: AnyPrincipal, db: Db) -> JobDetailOut:
     return _detail(await _job_for(db, principal, job_id))
+
+
+@router.post(
+    "/api/jobs/import",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("ingest"))],
+)
+async def import_job(
+    body: JobImportIn,
+    request: Request,
+    principal: CurrentUser,
+    db: Db,
+    taxonomy: Tax,
+    locations: Locations,
+) -> JobOut:
+    """Add a job by its link (Greenhouse), scored like the Scout's finds."""
+    try:
+        found = await greenhouse_posting(request.app.state.http, str(body.url))
+    except NotGreenhouseError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except JobSourceError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    job, _created = await import_posting(
+        db, principal.user, found, taxonomy=taxonomy, locations=locations, now=datetime.now(UTC)
+    )
+    return JobOut.model_validate(job)
 
 
 @router.post("/api/jobs/fetch", dependencies=[Depends(rate_limit("scout"))])

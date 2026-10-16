@@ -21,6 +21,7 @@ from app.domain.claims import (
     Routing,
     clause_around,
     code_claims,
+    from_context,
     locate,
     merge,
     outside,
@@ -134,9 +135,15 @@ def _find(
     employers: Sequence[str],
     taxonomy: Taxonomy,
     ignore: Sequence[str],
+    context: Sequence[str],
+    subject: str = "",
 ) -> list[FoundClaim]:
     found = merge([*code_claims(block.text, taxonomy, employers), *llm_found])
-    return outside(found, block.text, ignore)
+    return [
+        c
+        for c in outside(found, block.text, ignore)
+        if not from_context(c, block.text, context, subject)
+    ]
 
 
 def _route(
@@ -201,12 +208,20 @@ async def verify(
     similarity: Similarity,
     threshold: float,
     ignore: Sequence[str] = (),
+    context: Sequence[str] = (),
+    subject: str = "",
 ) -> Verification:
     """Claims for every bullet. Blocked claims are cut from the text before anything is stored."""
     out = list(blocks)
     indexes = [i for i, b in enumerate(out) if b.kind == "bullet" and b.text]
     llm_found, note = await _llm_claims(out, indexes, llm)
-    find = {"employers": employers, "taxonomy": taxonomy, "ignore": ignore}
+    find = {
+        "employers": employers,
+        "taxonomy": taxonomy,
+        "ignore": ignore,
+        "context": context,
+        "subject": subject,
+    }
     found = {i: _find(out[i], [c for b, c in llm_found if b == i], **find) for i in indexes}  # type: ignore[arg-type]
     sims = await _claim_similarities(out, found, similarity)
     rules = {"ledger": ledger, "taxonomy": taxonomy, "threshold": threshold}
