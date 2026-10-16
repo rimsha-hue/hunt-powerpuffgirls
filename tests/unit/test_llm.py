@@ -1,7 +1,8 @@
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.integrations.llm import (
@@ -12,6 +13,7 @@ from app.integrations.llm import (
     NullLLM,
     build_llm,
     data_block,
+    strict_json_schema,
 )
 
 
@@ -23,7 +25,9 @@ def _client(responses: dict[str, list[Any]]) -> LiteLLMClient:
     """A client whose provider calls return (or raise) scripted responses per model."""
     client = LiteLLMClient([ModelSpec(m, "k") for m in responses], timeout=5, max_tokens=100)
 
-    async def fake_call(spec: ModelSpec, messages: list[dict[str, str]]) -> str:
+    async def fake_call(
+        spec: ModelSpec, messages: list[dict[str, str]], response_format: dict[str, Any]
+    ) -> str:
         outcome = responses[spec.model].pop(0)
         if isinstance(outcome, Exception):
             raise outcome
@@ -71,7 +75,85 @@ class TestBuild:
     def test_no_keys_means_null_llm(self) -> None:
         assert isinstance(build_llm(Settings(_env_file=None)), NullLLM)  # type: ignore[call-arg]
 
-    def test_groq_key_builds_primary_and_fallback(self) -> None:
+    def test_chain_is_groq_primary_and_fallback_then_both_gemini_models(self) -> None:
         llm = build_llm(Settings(groq_api_key="g", gemini_api_key="m", _env_file=None))  # type: ignore[call-arg, arg-type]
         assert isinstance(llm, LiteLLMClient)
-        assert [m.model.split("/")[0] for m in llm.models] == ["groq", "groq", "gemini"]
+        assert [m.model.split("/")[0] for m in llm.models] == ["groq", "groq", "gemini", "gemini"]
+        assert llm.reasoning_effort == "low"
+
+    def test_gemini_keeps_its_default_temperature(self) -> None:
+        llm = build_llm(Settings(gemini_api_key="m", _env_file=None))  # type: ignore[call-arg, arg-type]
+        assert isinstance(llm, LiteLLMClient)
+        assert all(m.temperature is None for m in llm.models)
+
+    def test_empty_gemini_fallback_is_skipped(self) -> None:
+        settings = Settings(gemini_api_key="m", gemini_fallback_model="", _env_file=None)  # type: ignore[call-arg, arg-type]
+        llm = build_llm(settings)
+        assert isinstance(llm, LiteLLMClient)
+        assert len(llm.models) == 1
+
+
+class Item(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    count: int = Field(default=0, ge=0)
+
+
+class Wrapper(BaseModel):
+    items: list[Item] = Field(default_factory=list, max_length=10)
+
+
+class TestStrictSchema:
+    def test_inlines_refs_and_closes_every_object(self) -> None:
+        schema = strict_json_schema(Wrapper.model_json_schema())
+        assert "$defs" not in schema
+        item = schema["properties"]["items"]["items"]
+        assert item["properties"]["name"] == {"type": "string"}
+        for obj in (schema, item):
+            assert obj["additionalProperties"] is False
+            assert obj["required"] == list(obj["properties"])
+
+    def test_drops_validation_only_keywords(self) -> None:
+        text = str(strict_json_schema(Wrapper.model_json_schema()))
+        for keyword in ("maxLength", "minLength", "minimum", "maxItems", "default", "title"):
+            assert keyword not in text
+
+
+@pytest.fixture
+def sent(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Captures the keyword arguments of the provider call; the provider answers {"value": 1}."""
+    import litellm
+
+    captured: dict[str, Any] = {}
+    message = SimpleNamespace(content='{"value": 1}')
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+
+    async def fake_acompletion(**kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+        return response
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+    return captured
+
+
+class TestRequest:
+    async def test_sends_strict_schema_reasoning_effort_and_temperature(
+        self, sent: dict[str, Any]
+    ) -> None:
+        client = LiteLLMClient(
+            [ModelSpec("groq/m", "k")], timeout=5, max_tokens=100, reasoning_effort="low"
+        )
+        assert (await _ask(client)).value == 1
+        assert sent["response_format"]["type"] == "json_schema"
+        assert sent["response_format"]["json_schema"]["strict"] is True
+        assert sent["response_format"]["json_schema"]["schema"]["required"] == ["value"]
+        assert sent["reasoning_effort"] == "low"
+        assert sent["temperature"] == 0
+        assert sent["drop_params"] is True
+
+    async def test_omits_temperature_when_the_model_keeps_its_default(
+        self, sent: dict[str, Any]
+    ) -> None:
+        client = LiteLLMClient([ModelSpec("gemini/m", "k", temperature=None)], 5, 100)
+        await _ask(client)
+        assert "temperature" not in sent
+        assert "reasoning_effort" not in sent
