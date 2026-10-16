@@ -17,6 +17,7 @@ from app.api.deps import limiter
 from app.config import Settings, get_settings
 from app.db.session import create_engine, create_session_factory
 from app.domain.taxonomy import default_taxonomy
+from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
 from app.integrations.llm import StructuredLLM, build_llm
 from app.logging import configure_logging
@@ -28,7 +29,11 @@ logger = structlog.get_logger()
 BACKEND_PREFIXES = ("api/", "internal/", "mcp", "health", "ready", "docs", "openapi.json")
 
 
-def create_app(settings: Settings | None = None, llm: StructuredLLM | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    llm: StructuredLLM | None = None,
+    fetcher: SafeFetcher | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     settings.assert_safe_for_production()
     configure_logging(settings.log_level, settings.log_json)
@@ -43,6 +48,7 @@ def create_app(settings: Settings | None = None, llm: StructuredLLM | None = Non
         app.state.github = GitHubClient(
             http, settings.github_token.get_secret_value() if settings.github_token else None
         )
+        app.state.fetcher = fetcher or SafeFetcher(http)
         logger.info(
             "app_started", env=settings.app_env, version=__version__, llm=app.state.llm.configured
         )

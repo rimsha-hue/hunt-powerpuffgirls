@@ -22,14 +22,63 @@ class TestSplitResume:
 
     def test_long_lines_are_capped(self) -> None:
         (line,) = split_resume("x" * 2000)
-        assert len(line.text) == 500
+        assert len(line.text) == 800
+
+    def test_wrapped_bullets_become_one_line(self) -> None:
+        text = (
+            "PROJECTS\n"
+            "MediScan: AI Medicine Scanner [link]\n"
+            "• Integrated Gemini with a pharmacist persona for English and Urdu summaries; 94%\n"
+            "JSON parse success rate, 100% persona compliance.\n"
+            "• Second bullet\n"
+        )
+        texts = [line.text for line in split_resume(text)]
+        assert texts == [
+            "PROJECTS",
+            "MediScan: AI Medicine Scanner [link]",
+            "Integrated Gemini with a pharmacist persona for English and Urdu summaries; 94% "
+            "JSON parse success rate, 100% persona compliance.",
+            "Second bullet",
+        ]
+
+    def test_hyphenation_versus_real_hyphens(self) -> None:
+        text = (
+            "EXPERIENCE\n"
+            "• Hardened hybrid retrieval, session mem‐\n"
+            "ory, and a retrieval‐\n"
+            "augmented pipeline with Artificial Intel‐\n"
+            "ligence and Business Intelligence.\n"
+        )
+        (_, bullet) = split_resume(text)
+        assert "session memory" in bullet.text
+        assert "retrieval-augmented" in bullet.text
+        assert "Artificial Intelligence" in bullet.text
+
+    def test_header_lines_never_merge(self) -> None:
+        lines = split_resume("Jane Doe\njane@example.com | github.com/jane\nEXPERIENCE\nEngineer")
+        assert [line.text for line in lines[:2]] == [
+            "Jane Doe",
+            "jane@example.com | github.com/jane",
+        ]
+
+    def test_skills_without_a_label_continue_the_previous_line(self) -> None:
+        lines = split_resume("SKILLS\nML / AI: PyTorch, Keras\nHugging Face, NLP\nDev Tools: Git\n")
+        assert [line.text for line in lines] == [
+            "SKILLS",
+            "ML / AI: PyTorch, Keras Hugging Face, NLP",
+            "Dev Tools: Git",
+        ]
+
+    def test_bullets_are_flagged(self) -> None:
+        lines = split_resume("EXPERIENCE\nAI Intern\n• Built a thing\n")
+        assert [line.bulleted for line in lines] == [False, False, True]
 
 
 class TestContact:
     def test_extracts_contact_details_from_header(self) -> None:
         lines = split_resume(
             "AYESHA KHAN\nayesha@example.com | +92 300 1234567 | linkedin.com/in/ayesha-k\n"
-            "github.com/ayeshakdev\nEXPERIENCE\nEngineer"
+            "github.com/ayeshakdev | ayesha-portfolio.lovable.app\nEXPERIENCE\nEngineer"
         )
         contact = extract_contact(lines)
         assert contact.name == "Ayesha Khan"
@@ -37,6 +86,7 @@ class TestContact:
         assert contact.phone == "+92 300 1234567"
         assert contact.linkedin == "linkedin.com/in/ayesha-k"
         assert contact.github_username == "ayeshakdev"
+        assert contact.portfolio_url == "https://ayesha-portfolio.lovable.app"
 
 
 def _docx_bytes() -> bytes:

@@ -6,13 +6,20 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import or_, select
 
-from app.api.deps import LLM, AppSettings, CurrentUser, Db, GitHub, Tax, limiter
-from app.api.schemas import EvidenceOut, GitHubIngestionOut, ResumeIngestionOut, ResumeLineOut
+from app.api.deps import LLM, AppSettings, CurrentUser, Db, Fetcher, GitHub, Tax, limiter
+from app.api.schemas import (
+    EvidenceOut,
+    GitHubIngestionOut,
+    PortfolioIngestionOut,
+    ResumeIngestionOut,
+    ResumeLineOut,
+)
 from app.db.models import Evidence, ResumeLine
 from app.domain.uploads import UploadRejectedError
+from app.integrations.fetch import FetchBlockedError, FetchError
 from app.integrations.github import GitHubError
 from app.services import audit
-from app.services.ingestion import ingest_github, ingest_resume
+from app.services.ingestion import ingest_github, ingest_portfolio, ingest_resume
 
 router = APIRouter(prefix="/api", tags=["ledger"])
 
@@ -55,6 +62,7 @@ async def evidence_out(db: Db, rows: list[Evidence]) -> list[EvidenceOut]:
                 source_label=SOURCE_LABELS.get(e.source, e.source),
                 source_detail=detail,
                 source_url=url,
+                context=e.context,
                 confirmed_by=e.confirmed_by,
                 confidence=e.confidence,
                 created_at=e.created_at,
@@ -75,7 +83,11 @@ async def list_ledger(
     if q:
         like = f"%{q.strip().lower()}%"
         stmt = stmt.where(
-            or_(Evidence.normalized_value.like(like), Evidence.claim_text.ilike(like))
+            or_(
+                Evidence.normalized_value.like(like),
+                Evidence.claim_text.ilike(like),
+                Evidence.context.ilike(like),
+            )
         )
     if type:
         stmt = stmt.where(Evidence.type == type)
@@ -179,4 +191,27 @@ async def sync_github(
         username=report.username,
         repos_scanned=report.repos_scanned,
         facts=await evidence_out(db, report.evidence),
+    )
+
+
+@router.post("/portfolio/sync")
+@limiter.limit("10/minute")
+async def sync_portfolio(
+    request: Request, principal: CurrentUser, db: Db, fetcher: Fetcher, llm: LLM, taxonomy: Tax
+) -> PortfolioIngestionOut:
+    if not principal.user.portfolio_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Add your portfolio URL first.")
+    try:
+        report = await ingest_portfolio(db, principal.user, fetcher, llm, taxonomy)
+    except FetchBlockedError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except FetchError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    return PortfolioIngestionOut(
+        url=report.url,
+        method=report.method,
+        line_count=report.line_count,
+        facts=await evidence_out(db, report.evidence),
+        rejected_by_code=report.rejected_by_code,
+        llm_note=report.llm_note,
     )

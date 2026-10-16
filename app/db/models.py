@@ -107,6 +107,8 @@ class Evidence(Base):
     normalized_value: Mapped[str] = mapped_column(String(500))
     source: Mapped[str] = mapped_column(String(20))
     source_ref: Mapped[str] = mapped_column(String(500))
+    # The entry a fact belongs to, e.g. the project a metric was achieved in.
+    context: Mapped[str | None] = mapped_column(String(200))
     confirmed_by: Mapped[str] = mapped_column(String(10), default="system")
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

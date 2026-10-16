@@ -130,7 +130,7 @@ def _singular(word: str) -> str:
     word = word.lower()
     if word.endswith("ies") and len(word) > 4:
         return word[:-3] + "y"
-    if word.endswith("ses") or word.endswith("xes"):
+    if word.endswith(("sses", "uses", "xes", "ches", "shes")):  # classes, buses, boxes, batches
         return word[:-2]
     if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
         return word[:-1]
