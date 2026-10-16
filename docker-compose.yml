@@ -1,0 +1,28 @@
+# Local development: the API in the production image, configured by .env (Neon database),
+# reloading when backend code changes. Run the frontend alongside with `npm run dev` in frontend/
+# (http://localhost:5173, proxies /api to this service).
+#
+#   docker compose up --build        start (first time, or after dependency changes)
+#   docker compose up                start
+#   docker compose logs -f api       follow logs
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      APP_ENV: development
+      # Windows and macOS file events don't reach Linux containers; poll for changes instead.
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/srv/app:ro
+      - ./data:/srv/data:ro
+      - ./fixtures:/srv/fixtures:ro
+      - ./alembic.ini:/srv/alembic.ini:ro
+      # `npm run build` output is served at http://localhost:8000 without rebuilding the image.
+      - ./frontend/dist:/srv/frontend/dist:ro
+    command: >-
+      sh -c "alembic upgrade head
+      && (python -m app.seed || echo seed_failed)
+      && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"

@@ -1,12 +1,12 @@
 """Evidence ledger: resume upload, GitHub sync, listing with sources, and deletion."""
 
-from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import or_, select
 
-from app.api.deps import LLM, AppSettings, CurrentUser, Db, Fetcher, GitHub, Tax, limiter
+from app.api.deps import LLM, AppSettings, CurrentUser, Db, Fetcher, GitHub, Tax
+from app.api.ratelimit import rate_limit
 from app.api.schemas import (
     EvidenceOut,
     GitHubIngestionOut,
@@ -14,6 +14,7 @@ from app.api.schemas import (
     ResumeIngestionOut,
     ResumeLineOut,
 )
+from app.assets import SAMPLE_RESUME
 from app.db.models import Evidence, ResumeLine
 from app.domain.uploads import UploadRejectedError
 from app.integrations.fetch import FetchBlockedError, FetchError
@@ -23,7 +24,6 @@ from app.services.ingestion import ingest_github, ingest_portfolio, ingest_resum
 
 router = APIRouter(prefix="/api", tags=["ledger"])
 
-SAMPLE_RESUME = Path(__file__).resolve().parents[2] / "fixtures" / "demo_resume.docx"
 SOURCE_LABELS = {
     "resume": "Resume",
     "github": "GitHub",
@@ -138,6 +138,7 @@ async def _ingest(
             max_bytes=settings.max_upload_mb * 1024 * 1024,
             llm=llm,
             taxonomy=taxonomy,
+            phone_region=settings.default_phone_region,
         )
     except UploadRejectedError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -152,10 +153,8 @@ async def _ingest(
     )
 
 
-@router.post("/resume")
-@limiter.limit("10/minute")
+@router.post("/resume", dependencies=[Depends(rate_limit("ingest"))])
 async def upload_resume(
-    request: Request,
     principal: CurrentUser,
     db: Db,
     llm: LLM,
@@ -168,18 +167,16 @@ async def upload_resume(
     return await _ingest(data, principal, db, llm, taxonomy, settings)
 
 
-@router.post("/resume/sample")
-@limiter.limit("10/minute")
+@router.post("/resume/sample", dependencies=[Depends(rate_limit("ingest"))])
 async def load_sample_resume(
-    request: Request, principal: CurrentUser, db: Db, llm: LLM, taxonomy: Tax, settings: AppSettings
+    principal: CurrentUser, db: Db, llm: LLM, taxonomy: Tax, settings: AppSettings
 ) -> ResumeIngestionOut:
     return await _ingest(SAMPLE_RESUME.read_bytes(), principal, db, llm, taxonomy, settings)
 
 
-@router.post("/github/sync")
-@limiter.limit("10/minute")
+@router.post("/github/sync", dependencies=[Depends(rate_limit("ingest"))])
 async def sync_github(
-    request: Request, principal: CurrentUser, db: Db, github: GitHub, taxonomy: Tax
+    principal: CurrentUser, db: Db, github: GitHub, taxonomy: Tax
 ) -> GitHubIngestionOut:
     if not principal.user.github_username:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Add your GitHub username first.")
@@ -194,15 +191,16 @@ async def sync_github(
     )
 
 
-@router.post("/portfolio/sync")
-@limiter.limit("10/minute")
+@router.post("/portfolio/sync", dependencies=[Depends(rate_limit("ingest"))])
 async def sync_portfolio(
-    request: Request, principal: CurrentUser, db: Db, fetcher: Fetcher, llm: LLM, taxonomy: Tax
+    principal: CurrentUser, db: Db, fetcher: Fetcher, llm: LLM, taxonomy: Tax, settings: AppSettings
 ) -> PortfolioIngestionOut:
     if not principal.user.portfolio_url:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Add your portfolio URL first.")
     try:
-        report = await ingest_portfolio(db, principal.user, fetcher, llm, taxonomy)
+        report = await ingest_portfolio(
+            db, principal.user, fetcher, llm, taxonomy, renderer_url=settings.jina_reader_url
+        )
     except FetchBlockedError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except FetchError as exc:

@@ -1,11 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
-import { LogIn, UserPlus } from 'lucide-react'
+import { ArrowLeft, LogIn, UserPlus } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { Logo } from '../components/Logo'
 import { Button, ErrorNote, Field, PasswordField } from '../components/ui'
-import { api } from '../lib/api'
 import { useCalm } from '../lib/calm'
+import { usePublicConfig } from '../lib/config'
 import { cx } from '../lib/cx'
 import { useAuthMutation, useMe } from '../lib/session'
 
@@ -27,20 +26,24 @@ function GoogleG() {
   )
 }
 
-/** The intro clip as a full-bleed backdrop; a still frame in Calm mode or with reduced motion. */
-function LoginBackdrop() {
+/** The login clip filling the panel; a still frame in Calm mode or with reduced motion. */
+function PanelVideo() {
   const calm = useCalm()
-  const media = 'absolute inset-0 size-full object-cover object-[30%_50%] lg:object-[20%_50%]'
-  return (
-    <div className="absolute inset-0 bg-blush" aria-hidden="true">
-      {calm ? (
-        <img src="/media/intro-poster.jpg" alt="" className={media} />
-      ) : (
-        <video className={media} src="/media/intro.mp4" poster="/media/intro-poster.jpg" autoPlay muted loop playsInline />
-      )}
-      {/* Soft wash so the form side stays calm to read; the trio stays visible on the left. */}
-      <div className="absolute inset-0 bg-gradient-to-b from-blush/30 to-blush/60 lg:bg-gradient-to-r lg:from-transparent lg:via-blush/20 lg:to-blush/80" />
-    </div>
+  const media =
+    'block aspect-video w-full object-cover object-[35%_50%] lg:absolute lg:inset-0 lg:aspect-auto lg:size-full'
+  return calm ? (
+    <img src="/media/login-poster.jpg" alt="" className={media} />
+  ) : (
+    <video
+      className={media}
+      src="/media/login.mp4"
+      poster="/media/login-poster.jpg"
+      autoPlay
+      muted
+      loop
+      playsInline
+      aria-hidden="true"
+    />
   )
 }
 
@@ -52,11 +55,7 @@ export default function Login() {
   const login = useAuthMutation('login')
   const signup = useAuthMutation('signup')
   const active = mode === 'login' ? login : signup
-  const providers = useQuery({
-    queryKey: ['auth-providers'],
-    queryFn: () => api<{ password: boolean; google: boolean }>('/api/auth/providers'),
-    staleTime: Infinity,
-  })
+  const config = usePublicConfig()
   const googleError = GOOGLE_ERRORS[params.get('error') ?? '']
 
   if (me) return <Navigate to={me.onboarded ? '/ledger' : '/onboarding'} replace />
@@ -75,14 +74,24 @@ export default function Login() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 lg:justify-end lg:pr-[8vw]">
-      <LoginBackdrop />
-      <div className="relative w-full max-w-md">
-        <div className="mb-6 flex justify-center">
-          <Logo size="lg" />
-        </div>
+    <div className="min-h-screen">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
+        <Link to="/" aria-label="Power Hunt home">
+          <Logo />
+        </Link>
+        <Link to="/" className="inline-flex items-center gap-1.5 rounded-lg border-3 border-transparent px-3 py-1.5 font-semibold hover:border-ink">
+          <ArrowLeft className="size-4" aria-hidden />
+          Home
+        </Link>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
+        {/* Same container and panel as the landing hero, so the two line up exactly. */}
+        <section className="panel relative overflow-hidden bg-blush">
+          <PanelVideo />
+          <div className="relative flex justify-center p-5 sm:p-8 lg:min-h-[640px] lg:items-center lg:justify-end lg:p-12">
+            <div className="w-full max-w-md">
         <div className="panel bg-card p-6">
-          {providers.data?.google && (
+          {config.data?.google_sign_in && (
             <>
               {/* A full-page navigation: the OAuth flow must leave the app and come back. */}
               <a
@@ -143,7 +152,10 @@ export default function Login() {
         <p className="mx-auto mt-4 w-fit rounded-full border-2 border-ink bg-card px-4 py-1 text-center text-sm font-semibold">
           No source, no claim. Your squad proves everything it writes.
         </p>
-      </div>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
   )
 }

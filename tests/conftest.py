@@ -8,13 +8,46 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from app.api.deps import limiter
 from app.config import ROOT_DIR, Settings
+from app.domain.locations import LocationIndex, Place
 from app.integrations.llm import LLMError
 from app.main import create_app
 
 T = TypeVar("T", bound=BaseModel)
 PASSWORD = "correct-horse-battery"
+
+
+def small_location_index() -> LocationIndex:
+    """A few real places, including the traps the real data has (an alternate name shared by a
+    bigger city, and cities that share a name across countries)."""
+
+    def country(code: str, name: str, currency: str, aliases: list[str]) -> tuple[Place, list[str]]:
+        place = Place(f"country:{code}", "country", name, code, name, 1_000_000, currency)
+        return place, [code, *aliases]
+
+    def city(
+        gid: int, name: str, code: str, country_name: str, pop: int, aliases: list[str]
+    ) -> tuple[Place, list[str]]:
+        return Place(f"city:{gid}", "city", name, code, country_name, pop), aliases
+
+    return LocationIndex.build(
+        [
+            country("PK", "Pakistan", "PKR", ["PAK"]),
+            country("BD", "Bangladesh", "BDT", ["BGD"]),
+            country("GB", "United Kingdom", "GBP", ["GBR"]),
+            country("CA", "Canada", "CAD", ["CAN"]),
+            country("US", "United States", "USD", ["USA"]),
+            city(1176615, "Islamabad", "PK", "Pakistan", 601_600, ["ISB"]),
+            city(1172451, "Lahore", "PK", "Pakistan", 6_310_888, []),
+            city(1205733, "Chattogram", "BD", "Bangladesh", 2_581_643, ["Chittagong", "Islamabad"]),
+            city(2643743, "London", "GB", "United Kingdom", 8_961_989, []),
+            city(6058560, "London", "CA", "Canada", 346_765, []),
+            city(5391959, "San Francisco", "US", "United States", 864_816, ["SF"]),
+        ]
+    )
+
+
+LOCATIONS = small_location_index()
 
 
 class FakeLLM:
@@ -44,11 +77,6 @@ def migrate(database_url: str) -> None:
     cfg = Config(str(ROOT_DIR / "alembic.ini"))
     cfg.attributes["database_url"] = database_url
     command.upgrade(cfg, "head")
-
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limits() -> None:
-    limiter.reset()
 
 
 @pytest.fixture
@@ -86,7 +114,7 @@ def fake_llm() -> FakeLLM:
 
 @pytest.fixture
 def client(settings: Settings, fake_llm: FakeLLM) -> Iterator[TestClient]:
-    with TestClient(create_app(settings, llm=fake_llm)) as test_client:
+    with TestClient(create_app(settings, llm=fake_llm, locations=LOCATIONS)) as test_client:
         yield test_client
 
 

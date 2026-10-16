@@ -1,32 +1,45 @@
-"""Profile and onboarding preferences."""
+"""Profile and onboarding preferences. Every value is validated and normalised before storage."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUser, Db
-from app.api.schemas import ProfileIn, ProfileOut
+from app.api.deps import AppSettings, CurrentUser, Db, Locations
+from app.api.schemas import PlaceOut, ProfileIn, ProfileOut, SalaryOut
 from app.db.models import User
+from app.domain.locations import LocationIndex, Place
+from app.domain.profile import ProfileInvalidError, ProfileRules, normalize_changes
 from app.services import audit
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
-USER_FIELDS = ("name", "github_username", "portfolio_url")
+USER_COLUMNS = frozenset({"name", "github_username", "portfolio_url"})
 
 
-def profile_out(user: User) -> ProfileOut:
+def place_out(place: Place) -> PlaceOut:
+    return PlaceOut(key=place.key, label=place.label, kind=place.kind)
+
+
+def profile_out(user: User, locations: LocationIndex) -> ProfileOut:
     p = user.profile
+    home = locations.get(p.location) if p.location else None
+    targets = [place for key in (p.target_locations or []) if (place := locations.get(key))]
+    salary = (
+        SalaryOut(amount=p.salary_amount, currency=p.salary_currency, period=p.salary_period)
+        if p.salary_amount and p.salary_currency and p.salary_period
+        else None
+    )
     return ProfileOut(
         name=user.name,
         email=user.email,
         github_username=user.github_username,
         portfolio_url=user.portfolio_url,
         phone=p.phone,
-        location=p.location,
+        location=place_out(home) if home else None,
         linkedin=p.linkedin,
         work_authorization=p.work_authorization,
         notice_period=p.notice_period,
-        salary_expectation=p.salary_expectation,
+        salary=salary,
         target_roles=list(p.target_roles or []),
-        target_locations=list(p.target_locations or []),
+        target_locations=[place_out(place) for place in targets],
         match_threshold=p.match_threshold,
         calm_mode=p.calm_mode,
         resume_version=p.resume_version,
@@ -34,20 +47,30 @@ def profile_out(user: User) -> ProfileOut:
 
 
 @router.get("")
-async def get_profile(principal: CurrentUser) -> ProfileOut:
-    return profile_out(principal.user)
+async def get_profile(principal: CurrentUser, locations: Locations) -> ProfileOut:
+    return profile_out(principal.user, locations)
 
 
 @router.put("")
-async def update_profile(body: ProfileIn, principal: CurrentUser, db: Db) -> ProfileOut:
+async def update_profile(
+    body: ProfileIn, principal: CurrentUser, db: Db, locations: Locations, settings: AppSettings
+) -> ProfileOut:
     user = principal.user
     changes = body.model_dump(exclude_unset=True)
-    for key, value in changes.items():
-        if key == "portfolio_url" and value is not None:
-            value = str(value)
-        if key in {"github_username", "portfolio_url"} and value == "":
-            value = None
-        setattr(user if key in USER_FIELDS else user.profile, key, value)
+    try:
+        values = normalize_changes(changes, ProfileRules(locations, settings.default_phone_region))
+    except ProfileInvalidError as exc:
+        # Same shape as FastAPI's own validation errors, one entry per field.
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            [
+                {"type": "value_error", "loc": ["body", field], "msg": msg}
+                for field, msg in exc.errors.items()
+            ],
+        ) from exc
+
+    for column, value in values.items():
+        setattr(user if column in USER_COLUMNS else user.profile, column, value)
     await db.flush()
     audit.record(
         db,
@@ -58,4 +81,4 @@ async def update_profile(body: ProfileIn, principal: CurrentUser, db: Db) -> Pro
         entity_id=user.id,
         fields=sorted(changes),
     )
-    return profile_out(user)
+    return profile_out(user, locations)

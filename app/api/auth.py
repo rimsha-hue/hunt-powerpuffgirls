@@ -1,11 +1,12 @@
 """Signup, login, logout, current user and "Delete my data"."""
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete
 
-from app.api.deps import SESSION_COOKIE, AppSettings, CurrentUser, Db, limiter
+from app.api.deps import SESSION_COOKIE, AppSettings, CurrentUser, Db
+from app.api.ratelimit import rate_limit
 from app.api.schemas import LoginIn, MeOut, SignupIn, UserOut
 from app.db.models import User
 from app.integrations import google_oauth
@@ -52,11 +53,10 @@ def me_out(user: User, csrf_token: str, settings: AppSettings) -> MeOut:
     )
 
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
-async def signup(
-    request: Request, body: SignupIn, response: Response, db: Db, settings: AppSettings
-) -> MeOut:
+@router.post(
+    "/signup", status_code=status.HTTP_201_CREATED, dependencies=[Depends(rate_limit("signup"))]
+)
+async def signup(body: SignupIn, response: Response, db: Db, settings: AppSettings) -> MeOut:
     if await get_user_by_email(db, body.email):
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with that email already exists.")
     user = await create_user(db, email=body.email, password=body.password, name=body.name)
@@ -68,11 +68,8 @@ async def signup(
     return me_out(user, session.csrf_token, settings)
 
 
-@router.post("/login")
-@limiter.limit("10/minute")
-async def login(
-    request: Request, body: LoginIn, response: Response, db: Db, settings: AppSettings
-) -> MeOut:
+@router.post("/login", dependencies=[Depends(rate_limit("login"))])
+async def login(body: LoginIn, response: Response, db: Db, settings: AppSettings) -> MeOut:
     user = await authenticate(db, body.email, body.password)
     if user is None:
         logger.info("login_failed")
@@ -85,14 +82,8 @@ async def login(
     return me_out(user, session.csrf_token, settings)
 
 
-@router.get("/providers")
-async def providers(settings: AppSettings) -> dict[str, bool]:
-    return {"password": True, "google": settings.google_enabled}
-
-
-@router.get("/google/start", include_in_schema=False)
-@limiter.limit("20/minute")
-async def google_start(request: Request, settings: AppSettings) -> RedirectResponse:
+@router.get("/google/start", include_in_schema=False, dependencies=[Depends(rate_limit("oauth"))])
+async def google_start(settings: AppSettings) -> RedirectResponse:
     if not settings.google_enabled or not settings.google_client_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Google sign-in is not configured.")
     flow = google_oauth.new_flow()
@@ -124,8 +115,9 @@ def _login_redirect(error: str) -> RedirectResponse:
     return response
 
 
-@router.get("/google/callback", include_in_schema=False)
-@limiter.limit("20/minute")
+@router.get(
+    "/google/callback", include_in_schema=False, dependencies=[Depends(rate_limit("oauth"))]
+)
 async def google_callback(
     request: Request,
     db: Db,

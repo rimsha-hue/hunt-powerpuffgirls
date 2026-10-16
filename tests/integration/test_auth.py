@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from tests.conftest import PASSWORD, signup
+from tests.conftest import LOCATIONS, PASSWORD, signup
 
 PASSWORD_SECRET = SecretStr(PASSWORD)
 
@@ -63,8 +63,8 @@ class TestSignupAndLogin:
             update={"demo_user_email": "judge@demo.test", "demo_user_password": PASSWORD_SECRET}
         )
         loop_factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
-        assert asyncio.run(seed(demo), loop_factory=loop_factory) == "demo user created"
-        with TestClient(create_app(demo)) as client:
+        assert asyncio.run(seed(demo, LOCATIONS), loop_factory=loop_factory) == "demo user created"
+        with TestClient(create_app(demo, locations=LOCATIONS)) as client:
             response = client.post(
                 "/api/auth/login", json={"email": "judge@demo.test", "password": PASSWORD}
             )
@@ -97,7 +97,7 @@ class TestSessionsAndCsrf:
         assert no_token.status_code == 403
         assert bad_token.status_code == 403
         assert good.status_code == 200
-        assert good.json()["location"] == "Lahore"
+        assert good.json()["location"]["label"] == "Lahore, Pakistan"
 
     def test_logout_ends_the_session(self, client: TestClient, csrf: str) -> None:
         assert client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 204

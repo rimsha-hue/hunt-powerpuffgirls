@@ -9,30 +9,42 @@ export function setCsrfToken(token: string | null): void {
 
 export class ApiError extends Error {
   readonly status: number
-  constructor(status: number, message: string) {
+  /** Per-field messages from a 422, keyed by field name (e.g. "target_locations"). */
+  readonly fields: Record<string, string>
+  constructor(status: number, message: string, fields: Record<string, string> = {}) {
     super(message)
     this.status = status
+    this.fields = fields
   }
 }
 
 const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-async function errorMessage(res: Response): Promise<string> {
+const clean = (msg: string): string => msg.replace(/^Value error, /, '')
+
+async function toApiError(res: Response): Promise<ApiError> {
+  const fields: Record<string, string> = {}
+  let message: string | null = null
   try {
     const body: unknown = await res.json()
     if (body && typeof body === 'object' && 'detail' in body) {
       const detail = (body as { detail: unknown }).detail
-      if (typeof detail === 'string') return detail
-      if (Array.isArray(detail) && detail.length > 0) {
-        const first = detail[0] as { msg?: unknown }
-        if (typeof first.msg === 'string') return first.msg.replace(/^Value error, /, '')
+      if (typeof detail === 'string') message = detail
+      if (Array.isArray(detail)) {
+        for (const item of detail as Array<{ msg?: unknown; loc?: unknown }>) {
+          if (typeof item.msg !== 'string') continue
+          const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : undefined
+          if (typeof field === 'string') fields[field] ??= clean(item.msg)
+          message ??= clean(item.msg)
+        }
       }
     }
   } catch {
     // Non-JSON error body: fall through to the generic message.
   }
-  if (res.status === 429) return 'Too many attempts. Wait a minute and try again.'
-  return `Something went wrong (${res.status}).`
+  if (res.status === 429) message ??= 'Too many attempts. Wait a minute and try again.'
+  if (res.status === 413) message ??= 'That is too large to send.'
+  return new ApiError(res.status, message ?? `Something went wrong (${res.status}).`, fields)
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -43,7 +55,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (UNSAFE.has(method) && csrfToken) headers.set('X-CSRF-Token', csrfToken)
 
   const res = await fetch(path, { ...init, method, headers, credentials: 'same-origin' })
-  if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
+  if (!res.ok) throw await toApiError(res)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
@@ -68,16 +80,32 @@ export interface Me {
   is_demo: boolean
 }
 
+/** A place the server recognised; `key` is what gets stored and sent back. */
+export interface Place {
+  key: string
+  label: string
+  kind: 'remote' | 'country' | 'city'
+}
+
+export interface Salary {
+  amount: number
+  currency: string
+  period: 'month' | 'year'
+}
+
 export interface Profile {
   name: string
   email: string
   github_username: string | null
   portfolio_url: string | null
   phone: string | null
-  location: string | null
+  location: Place | null
   linkedin: string | null
+  work_authorization: string | null
+  notice_period: string | null
+  salary: Salary | null
   target_roles: string[]
-  target_locations: string[]
+  target_locations: Place[]
   match_threshold: number
   calm_mode: boolean
   resume_version: number

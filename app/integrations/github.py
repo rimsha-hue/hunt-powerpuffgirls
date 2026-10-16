@@ -16,10 +16,7 @@ from tenacity import (
 
 logger = structlog.get_logger()
 
-API = "https://api.github.com"
 USERNAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
-MAX_REPOS = 30
-LANGUAGE_DETAIL_REPOS = 10
 
 
 class GitHubError(Exception):
@@ -58,8 +55,19 @@ def _parse_time(value: Any) -> datetime | None:
 
 
 class GitHubClient:
-    def __init__(self, http: httpx.AsyncClient, token: str | None = None) -> None:
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        *,
+        api_url: str = "https://api.github.com",
+        token: str | None = None,
+        max_repos: int = 30,
+        language_detail_repos: int = 10,
+    ) -> None:
         self.http = http
+        self.api_url = api_url.rstrip("/")
+        self.max_repos = max_repos
+        self.language_detail_repos = language_detail_repos
         self.headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -77,7 +85,7 @@ class GitHubClient:
         ):
             with attempt:
                 response = await self.http.get(
-                    f"{API}{path}", params=params, headers=self.headers, timeout=10.0
+                    f"{self.api_url}{path}", params=params, headers=self.headers
                 )
                 if (
                     response.status_code == 403
@@ -96,7 +104,7 @@ class GitHubClient:
         try:
             raw = await self._get(
                 f"/users/{username}/repos",
-                {"per_page": MAX_REPOS, "sort": "pushed", "type": "owner"},
+                {"per_page": self.max_repos, "sort": "pushed", "type": "owner"},
             )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
@@ -124,7 +132,7 @@ class GitHubClient:
         detailed: list[RepoInfo] = []
         for index, repo in enumerate(owned):
             languages: dict[str, int] = {}
-            if index < LANGUAGE_DETAIL_REPOS:
+            if index < self.language_detail_repos:
                 try:
                     languages = await self._get(f"/repos/{username}/{repo.name}/languages")
                 except (httpx.HTTPError, GitHubError) as exc:

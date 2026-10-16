@@ -34,9 +34,11 @@ Markdown Content:
 @pytest.fixture
 def fetching_client(client: TestClient) -> TestClient:
     async def resolve(host: str, port: int) -> list[str]:
-        return {"janedoe.dev": [SITE_IP], "r.jina.ai": [JINA_IP], "intranet.local": ["10.0.0.7"]}[
-            host
-        ]
+        return {
+            "janedoe.dev": [SITE_IP],
+            "r.jina.ai": [JINA_IP],
+            "intranet.example.com": ["10.0.0.7"],
+        }[host]
 
     client.app.state.fetcher = SafeFetcher(client.app.state.http, resolve)  # type: ignore[attr-defined]
     return client
@@ -97,8 +99,20 @@ class TestPortfolioSync:
         assert {("skill", "langchain"), ("skill", "qdrant"), ("metric", "1200 support")} <= values
         assert not any("**" in f["claim_text"] or "](" in f["claim_text"] for f in body["facts"])
 
-    def test_private_addresses_are_refused(self, fetching_client: TestClient, csrf: str) -> None:
-        _set_portfolio(fetching_client, csrf, "https://intranet.local/admin")
+    def test_non_public_hosts_are_refused_when_saved(
+        self, fetching_client: TestClient, csrf: str
+    ) -> None:
+        for url in ("https://intranet.local/admin", "http://10.0.0.7/", "http://localhost:8000/"):
+            response = fetching_client.put(
+                "/api/profile", json={"portfolio_url": url}, headers={"X-CSRF-Token": csrf}
+            )
+            assert response.status_code == 422, url
+            assert response.json()["detail"][0]["loc"] == ["body", "portfolio_url"]
+
+    def test_names_that_resolve_to_private_addresses_are_refused(
+        self, fetching_client: TestClient, csrf: str
+    ) -> None:
+        _set_portfolio(fetching_client, csrf, "https://intranet.example.com/admin")
         response = fetching_client.post("/api/portfolio/sync", headers={"X-CSRF-Token": csrf})
         assert response.status_code == 400
         assert "public internet" in response.json()["detail"]

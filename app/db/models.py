@@ -54,14 +54,17 @@ class Profile(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
-    phone: Mapped[str | None] = mapped_column(String(50))
-    location: Mapped[str | None] = mapped_column(String(200))
-    linkedin: Mapped[str | None] = mapped_column(String(500))
-    work_authorization: Mapped[str | None] = mapped_column(String(200))
-    notice_period: Mapped[str | None] = mapped_column(String(100))
-    salary_expectation: Mapped[str | None] = mapped_column(String(100))
+    phone: Mapped[str | None] = mapped_column(String(20))  # E.164
+    # Places are stored as location keys ("city:1176615", "country:PK", "remote"), never free text.
+    location: Mapped[str | None] = mapped_column(String(40))
+    linkedin: Mapped[str | None] = mapped_column(String(200))  # canonical profile URL
+    work_authorization: Mapped[str | None] = mapped_column(String(30))  # WorkAuthorization value
+    notice_period: Mapped[str | None] = mapped_column(String(20))  # NoticePeriod value
+    salary_amount: Mapped[int | None] = mapped_column(Integer)
+    salary_currency: Mapped[str | None] = mapped_column(String(3))  # ISO 4217
+    salary_period: Mapped[str | None] = mapped_column(String(10))  # "month" or "year"
     target_roles: Mapped[list[str]] = mapped_column(default=list)
-    target_locations: Mapped[list[str]] = mapped_column(default=list)
+    target_locations: Mapped[list[str]] = mapped_column(default=list)  # location keys
     match_threshold: Mapped[int] = mapped_column(Integer, default=60)
     calm_mode: Mapped[bool] = mapped_column(default=False)
     resume_version: Mapped[int] = mapped_column(Integer, default=0)

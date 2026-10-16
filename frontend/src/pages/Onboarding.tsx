@@ -2,23 +2,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, FolderGit2, Sparkles, Target, UploadCloud } from 'lucide-react'
 import { useState, type ChangeEvent, type DragEvent } from 'react'
 import { Link } from 'react-router'
-import { ChipInput } from '../components/ChipInput'
+import { ChipInput, type Chip } from '../components/ChipInput'
 import { FactList } from '../components/FactList'
 import { Button, ErrorNote, Field, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { cx } from '../lib/cx'
 import { useToast } from '../lib/toast'
 import {
   api,
+  ApiError,
   json,
   type Evidence,
+  type Place,
   type GitHubIngestion,
   type PortfolioIngestion,
   type Profile,
   type ResumeIngestion,
 } from '../lib/api'
+import { usePublicConfig } from '../lib/config'
 import { meKey } from '../lib/session'
-
-const MAX_MB = 5
 
 function useProfile() {
   return useQuery({ queryKey: ['profile'], queryFn: () => api<Profile>('/api/profile') })
@@ -42,6 +43,8 @@ function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; 
   const [dragging, setDragging] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const qc = useQueryClient()
+  // The server publishes its limit; it also enforces it, so this check only saves a round trip.
+  const maxMb = usePublicConfig().data?.max_upload_mb
 
   const upload = useMutation({
     mutationFn: (file: File | null) => {
@@ -62,7 +65,7 @@ function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; 
     setLocalError(null)
     if (!file) return
     if (!/\.(pdf|docx)$/i.test(file.name)) return setLocalError('Choose a PDF or DOCX file.')
-    if (file.size > MAX_MB * 1024 * 1024) return setLocalError(`The file is larger than ${MAX_MB} MB.`)
+    if (maxMb && file.size > maxMb * 1024 * 1024) return setLocalError(`The file is larger than ${maxMb} MB.`)
     upload.mutate(file)
   }
 
@@ -90,7 +93,7 @@ function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; 
       >
         <UploadCloud className="size-8" aria-hidden />
         <span className="font-semibold">Drop your resume here, or click to choose</span>
-        <span className="font-mono text-xs">PDF or DOCX · up to {MAX_MB} MB</span>
+        <span className="font-mono text-xs">PDF or DOCX{maxMb ? ` · up to ${maxMb} MB` : ''}</span>
         <input
           type="file"
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -206,9 +209,23 @@ function GitHubStep({ profile, onFacts }: { profile: Profile; onFacts: (facts: E
   )
 }
 
+// Stable references, so the chip inputs don't refetch on every render.
+const suggestRoles = async (q: string, signal: AbortSignal): Promise<Chip[]> =>
+  (await api<string[]>(`/api/meta/roles?q=${encodeURIComponent(q)}`, { signal })).map((title) => ({
+    value: title,
+    label: title,
+  }))
+const suggestPlaces = async (q: string, signal: AbortSignal): Promise<Chip[]> =>
+  (await api<Place[]>(`/api/meta/locations?q=${encodeURIComponent(q)}`, { signal })).map((place) => ({
+    value: place.key,
+    label: place.label,
+  }))
+
 function TargetsStep({ profile }: { profile: Profile }) {
-  const [roles, setRoles] = useState(profile.target_roles)
-  const [locations, setLocations] = useState(profile.target_locations)
+  const [roles, setRoles] = useState<Chip[]>(profile.target_roles.map((r) => ({ value: r, label: r })))
+  const [locations, setLocations] = useState<Chip[]>(
+    profile.target_locations.map((p) => ({ value: p.key, label: p.label })),
+  )
   const [threshold, setThreshold] = useState(profile.match_threshold)
   const qc = useQueryClient()
   const toast = useToast()
@@ -217,13 +234,22 @@ function TargetsStep({ profile }: { profile: Profile }) {
     mutationFn: () =>
       api<Profile>('/api/profile', {
         method: 'PUT',
-        body: json({ target_roles: roles, target_locations: locations, match_threshold: threshold }),
+        body: json({
+          target_roles: roles.map((c) => c.value),
+          target_locations: locations.map((c) => c.value),
+          match_threshold: threshold,
+        }),
       }),
     onSuccess: (updated) => {
       qc.setQueryData(['profile'], updated)
+      // Show the server's canonical forms (trimmed titles, resolved place names).
+      setRoles(updated.target_roles.map((r) => ({ value: r, label: r })))
+      setLocations(updated.target_locations.map((p) => ({ value: p.key, label: p.label })))
       toast('Targets saved. The Scout will hunt for these.')
     },
   })
+  const fieldErrors = save.error instanceof ApiError ? save.error.fields : {}
+  const generalError = save.error && Object.keys(fieldErrors).length === 0 ? save.error.message : null
 
   return (
     <Panel>
@@ -232,8 +258,26 @@ function TargetsStep({ profile }: { profile: Profile }) {
         <PanelTitle kicker="Step 3">What you're hunting for</PanelTitle>
       </div>
       <div className="flex flex-col gap-4">
-        <ChipInput label="Target roles" values={roles} onChange={setRoles} placeholder="e.g. AI Engineer, then Enter" />
-        <ChipInput label="Locations" values={locations} onChange={setLocations} placeholder="e.g. Remote, Lahore" />
+        <ChipInput
+          label="Target roles"
+          chips={roles}
+          onChange={setRoles}
+          suggest={suggestRoles}
+          freeText
+          placeholder="e.g. Data Analyst"
+          hint="Pick a suggestion or type a job title and press Enter."
+          error={fieldErrors.target_roles}
+        />
+        <ChipInput
+          label="Locations"
+          chips={locations}
+          onChange={setLocations}
+          suggest={suggestPlaces}
+          freeText={false}
+          placeholder="e.g. Remote, Lahore, Islamabad"
+          hint="Cities, countries or Remote. Choose from the suggestions."
+          error={fieldErrors.target_locations}
+        />
         <div>
           <label htmlFor="threshold" className="mb-1 flex items-center justify-between text-sm font-semibold">
             Match threshold for the email digest
@@ -257,9 +301,9 @@ function TargetsStep({ profile }: { profile: Profile }) {
           {save.isPending ? 'Saving…' : 'Save targets'}
         </Button>
       </div>
-      {save.error && (
+      {generalError && (
         <div className="mt-3">
-          <ErrorNote>{save.error.message}</ErrorNote>
+          <ErrorNote>{generalError}</ErrorNote>
         </div>
       )}
     </Panel>

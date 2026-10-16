@@ -5,6 +5,7 @@ combine a deterministic code pass with an optional LLM pass. Every LLM-proposed 
 line that actually supports it, or it is discarded. Blocklisted values never enter the ledger.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -14,6 +15,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ClaimBlocklist, Evidence, ResumeLine, User
+from app.domain.contact import normalize_linkedin, normalize_person_name, normalize_phone
 from app.domain.ledger import (
     EvidenceSource,
     Fact,
@@ -24,11 +26,12 @@ from app.domain.ledger import (
     normalize_fact,
 )
 from app.domain.normalize import normalize_text
+from app.domain.profile import public_url
 from app.domain.resume import ContactInfo, ParsedLine, extract_contact, split_resume
 from app.domain.taxonomy import Taxonomy
 from app.domain.uploads import UploadRejectedError, sniff_resume
 from app.integrations.fetch import FetchError, SafeFetcher
-from app.integrations.github import GitHubClient, RepoInfo
+from app.integrations.github import USERNAME_RE, GitHubClient, RepoInfo
 from app.integrations.llm import LLMError, StructuredLLM
 from app.integrations.resume_text import extract_text_async
 from app.integrations.webtext import html_to_text, markdown_to_text
@@ -39,7 +42,6 @@ logger = structlog.get_logger()
 MIN_RESUME_LINES = 3
 # Below this much readable text, a page is probably rendered by JavaScript; ask Jina Reader.
 MIN_PAGE_TEXT = 300
-JINA_READER = "https://r.jina.ai/"
 
 EXTRACTION_SYSTEM = (
     "You extract verifiable facts about a job candidate from a document they wrote (a resume or a "
@@ -164,6 +166,32 @@ async def _document_facts(
     return kept, rejected, len(facts) - len(kept), llm_note
 
 
+def _prefill_from_contact(user: User, contact: ContactInfo, phone_region: str) -> None:
+    """Fill empty profile fields from the resume header, through the same validators the profile
+    form uses. A value that fails validation is skipped, never stored half-right."""
+    profile = user.profile
+    candidates: list[tuple[str, object, str | None, Callable[[str], str]]] = [
+        ("name", user, contact.name, normalize_person_name),
+        ("phone", profile, contact.phone, lambda v: normalize_phone(v, phone_region)),
+        ("linkedin", profile, contact.linkedin, normalize_linkedin),
+        ("github_username", user, contact.github_username, _github_username),
+        ("portfolio_url", user, contact.portfolio_url, public_url),
+    ]
+    for field_name, target, raw, normalize in candidates:
+        if not raw or getattr(target, field_name):
+            continue
+        try:
+            setattr(target, field_name, normalize(raw))
+        except ValueError:
+            logger.info("resume_contact_skipped", field=field_name)
+
+
+def _github_username(value: str) -> str:
+    if not USERNAME_RE.match(value):
+        raise ValueError("not a GitHub username")
+    return value
+
+
 async def ingest_resume(
     db: AsyncSession,
     user: User,
@@ -172,6 +200,7 @@ async def ingest_resume(
     max_bytes: int,
     llm: StructuredLLM,
     taxonomy: Taxonomy,
+    phone_region: str,
 ) -> ResumeIngestion:
     kind = sniff_resume(data, max_bytes)
     lines = split_resume(await extract_text_async(data, kind))
@@ -211,16 +240,7 @@ async def ingest_resume(
 
     contact = extract_contact(lines)
     profile.resume_version = version
-    if contact.name and not user.name:
-        user.name = contact.name
-    if contact.phone and not profile.phone:
-        profile.phone = contact.phone
-    if contact.linkedin and not profile.linkedin:
-        profile.linkedin = contact.linkedin
-    if contact.github_username and not user.github_username:
-        user.github_username = contact.github_username
-    if contact.portfolio_url and not user.portfolio_url:
-        user.portfolio_url = contact.portfolio_url
+    _prefill_from_contact(user, contact, phone_region)
 
     await db.flush()
     llm_used = llm.configured and llm_note is None
@@ -250,17 +270,21 @@ async def ingest_resume(
 
 
 async def fetch_page_text(
-    fetcher: SafeFetcher, url: str
+    fetcher: SafeFetcher, url: str, renderer_url: str
 ) -> tuple[str, Literal["direct", "rendered"]]:
-    """Readable text of a public page. JavaScript-rendered pages fall back to Jina Reader."""
+    """Readable text of a public page.
+
+    Pages that render with JavaScript have little text in their HTML; for those the page is read
+    through a rendering service (Jina Reader) at `renderer_url`. An empty `renderer_url` disables it.
+    """
     page = await fetcher.fetch(url)
     # Some hosts serve bots Markdown or plain text; both go through the Markdown cleaner.
     text = html_to_text(page.text) if "html" in page.content_type else markdown_to_text(page.text)
-    if len(text) >= MIN_PAGE_TEXT:
+    if len(text) >= MIN_PAGE_TEXT or not renderer_url:
         return text, "direct"
     try:
         # The target was already checked as public by the direct fetch above.
-        rendered = await fetcher.fetch(f"{JINA_READER}{page.url}")
+        rendered = await fetcher.fetch(f"{renderer_url}{page.url}")
     except FetchError:
         if text:
             return text, "direct"
@@ -272,11 +296,17 @@ async def fetch_page_text(
 
 
 async def ingest_portfolio(
-    db: AsyncSession, user: User, fetcher: SafeFetcher, llm: StructuredLLM, taxonomy: Taxonomy
+    db: AsyncSession,
+    user: User,
+    fetcher: SafeFetcher,
+    llm: StructuredLLM,
+    taxonomy: Taxonomy,
+    *,
+    renderer_url: str,
 ) -> PortfolioIngestion:
     if not user.portfolio_url:
         raise ValueError("No portfolio URL on the profile")
-    text, method = await fetch_page_text(fetcher, user.portfolio_url)
+    text, method = await fetch_page_text(fetcher, user.portfolio_url, renderer_url)
     lines = split_resume(text)
 
     await db.execute(
