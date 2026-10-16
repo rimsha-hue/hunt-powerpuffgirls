@@ -11,9 +11,9 @@ Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC
 | 2 | Scout with fallbacks, dedupe, Matcher, ATS scorer, Classifier, Jobs screen, digest email with signed Apply links | **Done.** Verified live: 3 JSearch queries, 27 new jobs, digest delivered with working Apply links. |
 | 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | **Done.** Verified live with Groq + bge-small: 7 bullets rewritten, 26 claims checked automatically, 1 sent to the user. |
 | 4 | Email apply flow (attachments, humanized email, SMTP send) | **Done.** Verified live: Groq draft, one invented claim flagged, sent through Gmail with the CV attached, job Applied, follow-up in 7 days. |
-| 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | **Next.** Not started |
+| 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | **Done.** Verified live on Anthropic's Greenhouse job 5186067008: 24 questions typed, profile and ledger answers sourced, two written answers citing a Tavily fact with its URL, consent left to the user. |
 | 6 | Coach and growth plans with GitHub verification; Activity screen | Not started |
-| 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | Not started |
+| 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | **Next** (cut line). Demo mode for jobs exists since Phase 2. |
 
 Cut line if time runs short: phases 0 to 4 and the eval first (spec section 19).
 
@@ -127,6 +127,31 @@ every email to one inbox), and set `INTERNAL_TOKEN` if a cron will call `/intern
 - Sending mailbox: the server's `SMTP_USER`. For the owner's own account that is "their own
   mailbox"; per-user mailboxes would need per-user SMTP credentials or Gmail OAuth.
 
+## 5d. Phase 5: what was built
+
+- Migration 0008: `company_facts` (7-day cache), `applications.form_source`/`form_url`,
+  `profiles.saved_answers` (answers to questions the profile has no field for).
+- Discovery (`integrations/forms.py`): Greenhouse board API (`?questions=true`, incl. compliance
+  and demographic questions), Lever apply page, any apply page through SafeFetcher
+  (labels, radio/checkbox groups, selects), else the user pastes questions.
+- Add a job by link (`POST /api/jobs/import`, `integrations/jobs/greenhouse.py`): a Greenhouse URL
+  becomes a scored job through the same `build_job` as the Scout.
+- Types (`domain/questions.py`): factual_profile, factual_ledger, descriptive, analytical, file,
+  plus consent (legal agreements: always the user's, never remembered) and voluntary (EEO:
+  "decline" option by default).
+- Researcher (`services/researcher.py`, `domain/research.py`): Tavily, facts are verbatim
+  sentences naming the company (own site first); job description as fallback; else ask the user.
+- Answers (`services/form_apply.py`): factual by code (profile, saved answers, ledger);
+  descriptive cites exactly one numbered fact (one rewrite for length/style/citation, then a
+  note); analytical renders assumptions, 2-4 steps, result, risk. Written answers are verified
+  sentence by sentence (document `q:<index>`); claims restating the cited fact or the question
+  (`claims.from_context`, guarded against first-person misattribution) are not the user's.
+- Gate 4: every answer approved, then "I submitted it" sets Applied and the follow-up date.
+  Power Hunt never submits a form. Autofill bookmarklet (stretch) not built.
+- Frontend: "Apply on their form" tab in the workspace (answers with type, status, source,
+  company fact link, edit/answer with "remember", approve), Apply Pack page (copy buttons, CV
+  and cover letter downloads, Open application form, I submitted it), "Add job" by link on Jobs.
+
 ## 6. Useful snippets
 
 LLM probe (prints model, OK or error type; never the key):
@@ -169,6 +194,7 @@ Check which `.env` keys are set without printing values:
 | One-line commit messages, no AI attribution | Owner's rule |
 | Recorded jobs only when every live source fails | Old postings shown when live sources merely found nothing would mislead |
 | Match score smoothed toward 50% by a prior of weight 2 | Short postings naming one skill scored 100; the ATS formula stays exactly as specified |
+| Company-fact and question claims excluded only by clause overlap, a copied distinctive phrase without first person, or a clause naming the company | A blunt word match would hide real claims ("I built AI systems") and let the model pin company numbers on the user |
 | Prose verified sentence by sentence against the closest resume line | Emails and letters have no one-to-one source line; this also checks the user's own edits |
 | fpdf2 for the CV PDF instead of WeasyPrint | Pure Python: same output in Docker, CI and on Windows; text-only one-column layout is ATS-safe |
 | Gates as statuses and API calls instead of LangGraph interrupts | Each gate already persists in Postgres; LangGraph added weight without a new capability under the deadline |

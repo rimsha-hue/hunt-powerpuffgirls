@@ -124,6 +124,58 @@ def outside(claims: Iterable[FoundClaim], text: str, phrases: Iterable[str]) -> 
     return [c for c in claims if not any(s <= c.start and c.end <= e for s, e in spans)]
 
 
+_FIRST_PERSON = re.compile(r"\bI\b|\b(?:my|me|we|our|us)\b", re.I)
+_RELATIVE = re.compile(r"\b(?:that|which|who|whose|where|while|whereas)\b", re.I)
+
+
+def _subclause(clause: str, phrase: str) -> str:
+    """The part of a clause around a phrase, cut at relative words ("that", "which"...)."""
+    at = clause.lower().find(phrase.lower())
+    if at < 0:
+        return clause
+    left = max((m.end() for m in _RELATIVE.finditer(clause, 0, at)), default=0)
+    right = min(
+        (m.start() for m in _RELATIVE.finditer(clause, at + len(phrase))), default=len(clause)
+    )
+    return clause[left:right]
+
+
+# Share of a clause's words that must come from a context text (a cited company fact, the
+# question) for its claims to count as that source's, not the candidate's.
+CONTEXT_OVERLAP = 0.6
+
+
+def from_context(claim: FoundClaim, text: str, contexts: Iterable[str], subject: str = "") -> bool:
+    """True when the claim belongs to a context text, not to the candidate:
+    - its clause restates the text ("your $150 million commitment to the Genesis Mission") with
+      every number in it;
+    - it is a distinctive phrase copied from the text (a number, or two or more words that
+      aren't a skill: "$150 million", "Genesis Mission"; "large language models" is a skill
+      the candidate may well claim);
+    - or its words appear in the text while its clause names the `subject` company
+      ("Anthropic's work on Claude").
+    "I built AI systems" and "I built apps with Claude" stay the candidate's claims."""
+    clause = clause_around(text, claim.start, claim.end)
+    tokens = content_tokens(clause)
+    if not tokens:
+        return False
+    numbers = {q.key for q in find_quantities(claim.text, include_years=True)}
+    distinctive = bool(numbers) or (len(claim.text.split()) >= 2 and claim.type != "skill")
+    # A copied phrase is the company's only if nothing in its own sub-clause is first person:
+    # "a company that commits $150 million" yes, "I served 300 factories" no.
+    about_candidate = _FIRST_PERSON.search(_subclause(clause, claim.text)) is not None
+    names_subject = bool(subject) and subject.lower() in clause.lower()
+    for context in contexts:
+        context_numbers = {q.key for q in find_quantities(context, include_years=True)}
+        overlap = len(tokens & content_tokens(context)) / len(tokens)
+        if numbers <= context_numbers and overlap >= CONTEXT_OVERLAP:
+            return True
+        copied = claim.text.lower() in context.lower()
+        if copied and ((distinctive and not about_candidate) or names_subject):
+            return True
+    return False
+
+
 def clause_around(text: str, start: int, end: int) -> str:
     left = max((m.end() for m in _CLAUSE_EDGE.finditer(text, 0, start)), default=0)
     right = min((m.start() for m in _CLAUSE_EDGE.finditer(text, end)), default=len(text))

@@ -122,8 +122,11 @@ class Settings(BaseSettings):
     # Signed Apply links in the digest stay valid this long (spec: 72 hours).
     apply_link_hours: int = Field(default=72, ge=1, le=168)
 
-    # --- Later phases ---
+    # --- Company research (Phase 5) ---
+    # Tavily search; without a key, company facts come from the job description only.
     tavily_api_key: SecretStr | None = None
+    tavily_api_url: AnyHttpUrl = AnyHttpUrl("https://api.tavily.com/search")
+    research_max_results: int = Field(default=5, ge=1, le=10)
 
     # --- Verifier (Phase 3) ---
     # A rewritten line at least this similar to its source line may be Inferred (spec section 5).

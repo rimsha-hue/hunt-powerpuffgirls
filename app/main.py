@@ -14,7 +14,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import __version__
-from app.api import applications, auth, health, jobs, ledger, meta, profile
+from app.api import applications, auth, forms, health, jobs, ledger, meta, profile
 from app.api.ratelimit import RateLimiter
 from app.assets import RECORDED_JOBS
 from app.config import Settings, get_settings
@@ -33,6 +33,7 @@ from app.integrations.jobs.sources import (
     RemotiveSource,
 )
 from app.integrations.llm import StructuredLLM, build_llm
+from app.integrations.research import TavilyClient
 from app.logging import configure_logging
 from app.middleware import BodySizeLimitMiddleware
 from app.security import SecurityHeadersMiddleware
@@ -160,6 +161,16 @@ def create_app(
             return index
 
         app.state.email = email or build_email(settings)
+        app.state.tavily = (
+            TavilyClient(
+                http,
+                api_url=str(settings.tavily_api_url),
+                api_key=settings.tavily_api_key.get_secret_value(),
+                max_results=settings.research_max_results,
+            )
+            if settings.tavily_api_key and settings.tavily_api_key.get_secret_value()
+            else None
+        )
         app.state.scout_runner = ScoutRunner(
             session_factory=app.state.session_factory,
             sources=job_sources or build_job_sources(settings, http),
@@ -222,6 +233,7 @@ def create_app(
         meta.router,
         jobs.router,
         applications.router,
+        forms.router,
     )
     for router in routers:
         app.include_router(router)

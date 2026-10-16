@@ -17,6 +17,7 @@ import { animate, motion, useMotionValue, useSpring, useTransform } from 'motion
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { EmailPanel } from '../components/EmailPanel'
+import { FormPanel } from '../components/FormPanel'
 import { Highlighted } from '../components/Highlighted'
 import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
 import {
@@ -215,26 +216,42 @@ function AtsGauge({ before, after }: { before: number; after: number }) {
   )
 }
 
-const DOCUMENT_LABELS: Record<Claim['document'], string> = {
+const DOCUMENT_LABELS: Record<'cv' | 'email' | 'cover_letter', string> = {
   cv: 'CV',
   email: 'Email',
   cover_letter: 'Cover letter',
 }
 
+/** The form answer a claim sits in ("q:3"), if any. */
+function answerOf(app: Application, claim: Claim) {
+  if (!claim.document.startsWith('q:')) return undefined
+  return app.form?.answers[Number(claim.document.slice(2))]
+}
+
+function documentLabel(app: Application, claim: Claim): string {
+  const answer = answerOf(app, claim)
+  if (answer) return `Form: ${answer.label.slice(0, 40)}`
+  return DOCUMENT_LABELS[claim.document as keyof typeof DOCUMENT_LABELS] ?? 'Answer'
+}
+
 function documentBlocks(app: Application, claim: Claim): CvBlock[] {
   if (claim.document === 'email') return app.email?.blocks ?? []
   if (claim.document === 'cover_letter') return app.email?.cover_letter ?? []
+  const answer = answerOf(app, claim)
+  if (answer) return answer.blocks
   return app.blocks
 }
 
 function NeedsYouCard({
   claim,
+  label,
   block,
   busy,
   onAnswer,
   autoFocus,
 }: {
   claim: Claim
+  label: string
   block: CvBlock | undefined
   busy: boolean
   onAnswer: (action: ClaimAction) => void
@@ -276,7 +293,7 @@ function NeedsYouCard({
       aria-label={`Needs you: ${claim.text}. Press Y to confirm, E to edit, R to remove.`}
     >
       <p className="font-mono text-[11px] font-medium uppercase">
-        {DOCUMENT_LABELS[claim.document]} · {claim.type}
+        {label} · {claim.type}
       </p>
       <p className="font-bold">{claim.text}</p>
       {block && <p className="mt-1 text-xs text-ink/80">“{block.text}”</p>}
@@ -354,6 +371,7 @@ export default function Workspace() {
   const toast = useToast()
   const [showOriginal, setShowOriginal] = useState(false)
   const [fresh, setFresh] = useState(false)
+  const [method, setMethod] = useState<'email' | 'form' | null>(null)
   const appKey = ['application', id] as const
 
   const job = useQuery({ queryKey: ['job', id], queryFn: () => api<JobDetail>(`/api/jobs/${id}`) })
@@ -432,6 +450,8 @@ export default function Workspace() {
   const open = app.claims.filter((c) => c.bucket === 'needs_you')
   const blocked = app.claims.filter((c) => c.bucket === 'blocked')
   const approved = app.status !== 'draft'
+  // Email when the posting asks for it (or the email was already drafted), else the form.
+  const route = method ?? (app.email || (j.apply_method === 'email' && !app.form) ? 'email' : 'form')
   const sentenceRenderer = (claims: Claim[]) => (block: CvBlock, index: number) => (
     <BlockText block={block} claims={claims.filter((c) => c.block_index === index)} fresh={fresh} />
   )
@@ -507,6 +527,7 @@ export default function Workspace() {
                   <NeedsYouCard
                     key={claim.id}
                     claim={claim}
+                    label={documentLabel(app, claim)}
                     block={documentBlocks(app, claim)[claim.block_index]}
                     busy={answer.isPending}
                     autoFocus={i === 0 && !answer.isPending}
@@ -563,7 +584,35 @@ export default function Workspace() {
         </div>
       </div>
 
-      {approved && <EmailPanel app={app} jobId={j.id} renderBlock={sentenceRenderer} />}
+      {approved && (
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="How to apply">
+            {(['email', 'form'] as const).map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                role="tab"
+                aria-selected={route === choice}
+                onClick={() => setMethod(choice)}
+                className={cx(
+                  'rounded-full border-3 border-ink px-4 py-1.5 text-sm font-semibold',
+                  route === choice ? 'bg-ink text-card' : 'bg-card',
+                )}
+              >
+                {choice === 'email' ? 'Apply by email' : 'Apply on their form'}
+              </button>
+            ))}
+            <span className="text-xs">
+              The posting suggests {j.apply_method === 'email' ? 'email' : j.apply_method === 'form' ? 'their form' : 'either'}.
+            </span>
+          </div>
+          {route === 'email' ? (
+            <EmailPanel app={app} jobId={j.id} renderBlock={sentenceRenderer} />
+          ) : (
+            <FormPanel app={app} jobId={j.id} renderBlock={sentenceRenderer} />
+          )}
+        </section>
+      )}
     </div>
   )
 }

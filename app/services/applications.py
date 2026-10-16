@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Application, Claim, Job, ResumeLine, User
 from app.domain.ats import AtsResult, Keyword, cv_from_lines, score_cv, supported_keys
 from app.domain.claims import Ledger
+from app.domain.compose import prose_text
 from app.domain.cv import Block, SourceLine, base_blocks, cv_document
 from app.domain.status import transition
 from app.domain.taxonomy import Taxonomy
@@ -40,18 +41,40 @@ async def source_lines(db: AsyncSession, user_id: int) -> list[SourceLine]:
 Document = Literal["cv", "email", "cover_letter"]
 
 
+ANSWER_PREFIX = "q:"
+
+
+def answer_index(document: str) -> int | None:
+    """The question index of an answer document ("q:3"), else None."""
+    if document.startswith(ANSWER_PREFIX) and document[len(ANSWER_PREFIX) :].isdigit():
+        return int(document[len(ANSWER_PREFIX) :])
+    return None
+
+
 def blocks_of(application: Application, document: str = "cv") -> list[Block]:
-    data = {
-        "cv": application.tailored_cv_json,
-        "email": application.email_blocks_json,
-        "cover_letter": application.cover_letter_blocks_json,
-    }[document]
+    index = answer_index(document)
+    if index is not None:
+        items = application.answers_json
+        data = items[index].get("blocks", []) if 0 <= index < len(items) else []
+    else:
+        data = {
+            "cv": application.tailored_cv_json,
+            "email": application.email_blocks_json,
+            "cover_letter": application.cover_letter_blocks_json,
+        }[document]
     return [Block.from_json(b) for b in data]
 
 
 def set_blocks(application: Application, document: str, blocks: Sequence[Block]) -> None:
     data = [b.to_json() for b in blocks]
-    if document == "cv":
+    index = answer_index(document)
+    if index is not None:
+        # A new list, so SQLAlchemy sees the JSON change; the answer text follows its sentences.
+        items = [dict(item) for item in application.answers_json]
+        items[index]["blocks"] = data
+        items[index]["answer"] = prose_text(blocks)
+        application.answers_json = items
+    elif document == "cv":
         application.tailored_cv_json = data
     elif document == "email":
         application.email_blocks_json = data
@@ -249,6 +272,11 @@ async def decide(
         )
 
     set_blocks(application, document, blocks)
+    if answer_index(document) is not None:
+        # An answer's status follows its claims (imported here: form_apply imports this module).
+        from app.services.form_apply import sync_status
+
+        sync_status(application, document, claims)
     application.updated_at = now
     if document == "cv":
         ledger, _ = await load_ledger(db, application.user_id)

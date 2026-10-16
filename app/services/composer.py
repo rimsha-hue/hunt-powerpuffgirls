@@ -174,6 +174,8 @@ async def verify_prose(
     similarity: Similarity,
     threshold: float,
     ignore: Sequence[str] = (),
+    context: Sequence[str] = (),
+    subject: str = "",
 ) -> int:
     """Splits the text into sentence blocks, verifies them, and replaces the document's claims.
     Returns how many claims need the user."""
@@ -184,6 +186,8 @@ async def verify_prose(
     checked = await verifier.verify(
         blocks,
         ignore=ignore,
+        context=context,
+        subject=subject,
         ledger=ledger,
         employers=employers,
         taxonomy=taxonomy,
@@ -235,6 +239,7 @@ async def compose(
         similarity=similarity,
         threshold=threshold,
         ignore=(job.title, job.company),
+        subject=job.company,
     )
     if wants_letter:
         letter = await _draft("cover_letter", job, cv, llm, "")
@@ -250,6 +255,7 @@ async def compose(
             similarity=similarity,
             threshold=threshold,
             ignore=(job.title, job.company),
+            subject=job.company,
         )
     else:
         set_blocks(application, "cover_letter", [])
@@ -303,6 +309,7 @@ async def edit_prose(
     threshold: float,
     now: datetime,
     ignore: Sequence[str] = (),
+    subject: str = "",
 ) -> None:
     """The user's own wording replaces the draft and is verified the same way."""
     if application.sent_at is not None:
@@ -319,6 +326,7 @@ async def edit_prose(
         similarity=similarity,
         threshold=threshold,
         ignore=ignore,
+        subject=subject,
     )
     application.updated_at = now
 

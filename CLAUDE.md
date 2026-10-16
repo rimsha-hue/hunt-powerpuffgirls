@@ -15,8 +15,8 @@ own confirmation). When the system cannot prove something, it asks the user.
 - Deadline: 17 October 2026, 12:45 PM PKT. Deploy target: Alternate Clouds, one Docker container.
 - Judging: technical execution 25, usefulness 20, theme 15, creativity 15, automation depth 15,
   UX 10. Grayhat (security engineers) are judges, so security and reliability are visible.
-- Status: Phases 0 to 4 done. Phase 5 (form apply flow: Greenhouse questions, Researcher,
-  Apply Pack) is next; then the eval (Phase 7) per the cut line.
+- Status: Phases 0 to 5 done. Next: the claim eval and its README numbers (Phase 7, required
+  by the cut line), then Phase 6 (Coach and growth plans) if time allows.
   See `docs/HANDOVER.md` for the exact state and known issues.
 
 ## 2. How to work here

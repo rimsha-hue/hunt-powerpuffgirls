@@ -1,6 +1,6 @@
 # Architecture
 
-How the code fits together today (end of Phase 4). For the full product spec see `SPEC.md`.
+How the code fits together today (end of Phase 5). For the full product spec see `SPEC.md`.
 
 ## Runtime shape
 
@@ -37,6 +37,7 @@ app/
     jobs.py          Jobs list/detail, fetch, status, Gate 1, /apply links, /internal/run-scout
     applications.py  Workspace: tailor, claim decisions, approve, cv.pdf, compose, email edits,
                      uploads, waive, cover-letter.pdf, send
+    forms.py         Flow D endpoints (questions, answers, approve, submitted)
     deps.py          DB session, current user + CSRF, shared clients from app.state
     ratelimit.py     RateLimiter (limits library) + rate_limit("rule") dependency
     schemas.py       Request/response contracts
@@ -59,6 +60,8 @@ app/
     claims.py        Claim code pass and routing: Verified, Inferred, Needs you, blocked
     style.py         Banned phrases and dashes
     compose.py       Email/cover letter rules: subject, sentences, length, attachment plan
+    questions.py     Form questions: types, limits, profile answers, options
+    research.py      Company facts: verbatim sentences naming the company
   integrations/
     llm.py           LiteLLM client: provider chain, data blocks, schema validation + repair
     resume_text.py   PDF/DOCX text: invisible-text filter, column detection, word gaps
@@ -70,6 +73,8 @@ app/
     email.py         EmailProvider; Gmail SMTP with retries on dropped connections
     embeddings.py    bge-small similarity (fastembed), lexical fallback
     pdf.py           CV PDF (fpdf2, bundled Public Sans)
+    forms.py         Form discovery: Greenhouse API, Lever/apply pages, pasted questions
+    research.py      Tavily search client
   services/
     ingestion.py     Resume, portfolio and GitHub ingestion into the evidence ledger
     auth.py          argon2 passwords, server-side sessions, Google account linking
@@ -83,12 +88,14 @@ app/
     verifier.py      Claim extraction and routing; Gate 2 answers
     applications.py  Workspace: tailor, verify, ATS after, approve
     composer.py      Composer and Courier: draft, verify prose, uploads, waive, send
+    researcher.py    Company facts with 7-day cache and job-description fallback
+    form_apply.py    Flow D: discover, draft typed answers, edit, approve, submitted
   db/
     models.py        users, profiles, auth_sessions, resume_lines, evidence, claim_blocklist, audit
     session.py       Engine factory, DatabaseProbe, ping
-    migrations/      Alembic (0001 to 0007)
+    migrations/      Alembic (0001 to 0008)
 frontend/src/
-  pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail, Workspace (app pages are lazy-loaded)
+  pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail, Workspace, ApplyPack (app pages are lazy-loaded)
   components/        Layout (nav, Calm mode), Logo, ChipInput (combobox), FactList, Toast, ui
   lib/               api client (CSRF, field errors), session, config, calm, toast, cx
 data/                skills_taxonomy.json, job_titles.json

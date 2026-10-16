@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, Radar, X } from 'lucide-react'
+import { ArrowRight, Link as LinkIcon, Radar, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -126,6 +126,8 @@ export default function Jobs() {
   const [method, setMethod] = useState<Method>('all')
   const [minMatch, setMinMatch] = useState<MinMatch>('0')
   const [sweep, setSweep] = useState(0)
+  const [link, setLink] = useState('')
+  const navigate = useNavigate()
   const calm = useCalm()
   const qc = useQueryClient()
   const toast = useToast()
@@ -168,6 +170,16 @@ export default function Jobs() {
     onSettled: () => void qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 
+  const addByLink = useMutation({
+    mutationFn: (url: string) => api<Job>('/api/jobs/import', { method: 'POST', body: json({ url }) }),
+    onSuccess: (job) => {
+      setLink('')
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+      navigate(`/jobs/${job.id}`)
+    },
+    onError: (err) => toast(err.message, 'error'),
+  })
+
   const rows = jobs.data ?? []
   const filtered = view !== 'open' || method !== 'all' || minMatch !== '0'
 
@@ -200,6 +212,30 @@ export default function Jobs() {
           <FilterChips label="Minimum match" options={MIN_MATCH} value={minMatch} onChange={setMinMatch} />
         </div>
       </div>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (link.trim()) addByLink.mutate(link.trim())
+        }}
+        className="flex flex-col gap-2 sm:flex-row"
+      >
+        <label className="sr-only" htmlFor="job-link">
+          Greenhouse job link
+        </label>
+        <input
+          id="job-link"
+          type="url"
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="Found a job yourself? Paste its Greenhouse link"
+          className="min-w-0 flex-1 rounded-lg border-3 border-ink bg-white px-3 py-2"
+        />
+        <Button type="submit" variant="secondary" disabled={addByLink.isPending || !link.trim()}>
+          <LinkIcon className="size-4" aria-hidden />
+          {addByLink.isPending ? 'Adding…' : 'Add job'}
+        </Button>
+      </form>
 
       {jobs.error && <ErrorNote>{jobs.error.message}</ErrorNote>}
 

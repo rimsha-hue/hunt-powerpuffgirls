@@ -12,15 +12,19 @@ from app.api.deps import LLM, AnyPrincipal, AppSettings, Db, Principal, Tax, can
 from app.api.ledger import evidence_out
 from app.api.ratelimit import rate_limit
 from app.api.schemas import (
+    AnswerOut,
+    AnswerSourceOut,
     ApplicationOut,
     AtsAfterOut,
     AttachmentOut,
     ClaimDecisionIn,
     ClaimOut,
     ClaimSourceOut,
+    CompanyFactOut,
     CvBlockOut,
     EmailEditIn,
     EmailOut,
+    FormOut,
     WaiveIn,
 )
 from app.db.models import Application, Claim, Evidence, Job, ResumeLine, User
@@ -29,7 +33,7 @@ from app.domain.cv import Block
 from app.domain.uploads import UploadRejectedError, sniff_resume
 from app.integrations.embeddings import Similarity
 from app.integrations.pdf import render_cv, render_letter
-from app.services import composer
+from app.services import composer, form_apply
 from app.services.applications import WorkspaceError, approve_cv, blocks_of, decide, prepare
 from app.services.verifier import DecisionError
 
@@ -44,14 +48,14 @@ def get_similarity(request: Request) -> Similarity:
 Sim = Annotated[Similarity, Depends(get_similarity)]
 
 
-async def _job(db: Db, principal: Principal, job_id: int) -> Job:
+async def job_for(db: Db, principal: Principal, job_id: int) -> Job:
     job = await db.get(Job, job_id)
     if job is None or not can_open_job(principal, job.user_id, job.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found.")
     return job
 
 
-async def _application(db: Db, job: Job) -> Application:
+async def application_for(db: Db, job: Job) -> Application:
     application = (
         await db.execute(select(Application).where(Application.job_id == job.id))
     ).scalar_one_or_none()
@@ -109,7 +113,7 @@ async def _sources(db: Db, user_id: int, claims: list[Claim]) -> dict[int, Claim
     return out
 
 
-async def _out(db: Db, application: Application, job: Job) -> ApplicationOut:
+async def application_out(db: Db, application: Application, job: Job) -> ApplicationOut:
     user = await db.get(User, application.user_id)
     assert user is not None  # applications cascade with their user
     claims = list(
@@ -163,6 +167,7 @@ async def _out(db: Db, application: Application, job: Job) -> ApplicationOut:
         cv_approved_at=application.cv_approved_at,
         updated_at=application.updated_at,
         email=await _email_out(db, application, user) if application.email_blocks_json else None,
+        form=_form_out(application) if application.answers_json else None,
     )
 
 
@@ -179,6 +184,38 @@ def _blocks_out(blocks: list[Block]) -> list[CvBlockOut]:
         )
         for b in blocks
     ]
+
+
+def _form_out(application: Application) -> FormOut:
+    submitted = application.status == "submitted"
+    return FormOut(
+        source=application.form_source,
+        url=application.form_url,
+        answers=[
+            AnswerOut(
+                index=index,
+                label=item["label"],
+                description=item.get("description", ""),
+                required=item["required"],
+                field_type=item["field_type"],
+                options=list(item.get("options") or []),
+                name=item.get("name", ""),
+                type=item["type"],
+                answer=item["answer"],
+                status=item["status"],
+                source=AnswerSourceOut(**item["source"]) if item.get("source") else None,
+                company_fact=CompanyFactOut(**item["company_fact"])
+                if item.get("company_fact")
+                else None,
+                note=item.get("note"),
+                blocks=_blocks_out(blocks_of(application, f"q:{index}")),
+            )
+            for index, item in enumerate(application.answers_json)
+        ],
+        blockers=form_apply.pack_blockers(application),
+        submitted_at=application.sent_at if submitted else None,
+        follow_up_due=application.follow_up_due if submitted else None,
+    )
 
 
 async def _email_out(db: Db, application: Application, user: User) -> EmailOut:
@@ -204,8 +241,8 @@ async def _email_out(db: Db, application: Application, user: User) -> EmailOut:
 
 @router.get("/jobs/{job_id}/application")
 async def get_application(job_id: int, principal: AnyPrincipal, db: Db) -> ApplicationOut:
-    job = await _job(db, principal, job_id)
-    return await _out(db, await _application(db, job), job)
+    job = await job_for(db, principal, job_id)
+    return await application_out(db, await application_for(db, job), job)
 
 
 @router.post("/jobs/{job_id}/tailor", dependencies=[Depends(rate_limit("ingest"))])
@@ -218,7 +255,7 @@ async def tailor_cv(
     similarity: Sim,
     settings: AppSettings,
 ) -> ApplicationOut:
-    job = await _job(db, principal, job_id)
+    job = await job_for(db, principal, job_id)
     try:
         application = await prepare(
             db,
@@ -232,7 +269,7 @@ async def tailor_cv(
         )
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
 
 
 @router.post("/claims/{claim_id}/decision")
@@ -250,7 +287,7 @@ async def decide_claim(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Claim not found.")
     application = await db.get(Application, claim.application_id)
     assert application is not None  # claims cascade with their application
-    job = await _job(db, principal, application.job_id)
+    job = await job_for(db, principal, application.job_id)
     try:
         await decide(
             db,
@@ -269,24 +306,24 @@ async def decide_claim(
     except DecisionError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     await db.flush()
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
 
 
 @router.post("/jobs/{job_id}/application/approve")
 async def approve(job_id: int, principal: AnyPrincipal, db: Db) -> ApplicationOut:
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     try:
         await approve_cv(db, application, datetime.now(UTC))
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
 
 
 @router.get("/jobs/{job_id}/application/cv.pdf")
 async def cv_pdf(job_id: int, principal: AnyPrincipal, db: Db) -> Response:
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     if application.status == "draft":
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Approve the CV first; then it can be downloaded."
@@ -314,8 +351,8 @@ async def compose_email(
     settings: AppSettings,
 ) -> ApplicationOut:
     """Flow C: draft the email (and cover letter if asked for) from the approved CV, verified."""
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     try:
         await composer.compose(
             db,
@@ -331,7 +368,7 @@ async def compose_email(
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     await db.flush()
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
 
 
 @router.put("/jobs/{job_id}/application/email")
@@ -346,8 +383,8 @@ async def edit_email(
     settings: AppSettings,
 ) -> ApplicationOut:
     """The user edits the recipient, subject, body or cover letter. New wording is verified."""
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     if application.sent_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "This application was already sent.")
     if not application.email_blocks_json:
@@ -363,6 +400,7 @@ async def edit_email(
         "threshold": settings.infer_threshold,
         "now": datetime.now(UTC),
         "ignore": (job.title, job.company),
+        "subject": job.company,
     }
     try:
         if body.body is not None:
@@ -372,7 +410,7 @@ async def edit_email(
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     await db.flush()
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
 
 
 @router.post(
@@ -386,8 +424,8 @@ async def upload_file(
     settings: AppSettings,
     file: Annotated[UploadFile, File(description="PDF or DOCX")],
 ) -> ApplicationOut:
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     limit = settings.max_upload_mb * 1024 * 1024
     data = await file.read(limit + 1)
     try:
@@ -405,7 +443,7 @@ async def upload_file(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
 
 
 @router.post("/jobs/{job_id}/application/attachments/{kind}/waive")
@@ -413,19 +451,19 @@ async def waive_attachment(
     job_id: int, kind: str, body: WaiveIn, principal: AnyPrincipal, db: Db
 ) -> ApplicationOut:
     """The user explicitly sends without an item the posting asked for (or takes that back)."""
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     try:
         composer.waive(application, kind, body.waived)
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
 
 
 @router.get("/jobs/{job_id}/application/cover-letter.pdf")
 async def cover_letter_pdf(job_id: int, principal: AnyPrincipal, db: Db) -> Response:
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     letter = blocks_of(application, "cover_letter")
     if not letter:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No cover letter for this application.")
@@ -451,8 +489,8 @@ async def send_application(
     job_id: int, request: Request, principal: AnyPrincipal, db: Db
 ) -> ApplicationOut:
     """Gate 3 (Approve): the email goes out from the user's mailbox with its attachments."""
-    job = await _job(db, principal, job_id)
-    application = await _application(db, job)
+    job = await job_for(db, principal, job_id)
+    application = await application_for(db, job)
     try:
         await composer.send(
             db,
@@ -464,4 +502,4 @@ async def send_application(
         )
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return await _out(db, application, job)
+    return await application_out(db, application, job)
