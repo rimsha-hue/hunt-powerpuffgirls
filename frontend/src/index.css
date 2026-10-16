@@ -1,0 +1,67 @@
+@import 'tailwindcss';
+
+/*
+ * Palette contrast (WCAG, checked):
+ *   ink on cream 17.0:1, ink on yellow 12.6:1, ink on coral 6.0:1, cream on violet 9.0:1.
+ *   Coral text on cream is only 3.0:1, so coral is used as a fill with ink text, never as text.
+ */
+@theme {
+  --color-ink: #16121f;
+  --color-cream: #fff6e5;
+  --color-coral: #ff4d6d;
+  --color-signal: #ffd23f;
+  --color-violet: #5a2a9c;
+  --color-verified: #1f9d55;
+  --color-inferred: #2b6cb0;
+
+  --font-display: 'Bangers', 'Impact', sans-serif;
+  --font-sans: 'Public Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --shadow-comic: 6px 6px 0 var(--color-ink);
+  --shadow-comic-sm: 3px 3px 0 var(--color-ink);
+}
+
+@layer base {
+  html {
+    background: var(--color-cream);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-coral);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .panel {
+    border: 3px solid var(--color-ink);
+    border-radius: 14px;
+    box-shadow: var(--shadow-comic);
+  }
+  /* Halftone dots: hero areas only. */
+  .halftone {
+    background-image: radial-gradient(rgb(22 18 31 / 0.16) 1.2px, transparent 1.6px);
+    background-size: 10px 10px;
+  }
+  .lift {
+    transition: transform 150ms ease, box-shadow 150ms ease;
+  }
+  .lift:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 8px 8px 0 var(--color-ink);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  .lift:hover {
+    transform: none;
+  }
+}
