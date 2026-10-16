@@ -9,8 +9,8 @@ Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC
 | 0 | Skeleton, Dockerfile, CI, health | **Done**. Deploy blocked by the platform (see section 4). |
 | 1 | Auth, demo seed, resume parsing, evidence ledger, GitHub ingestion, Onboarding and Ledger screens | **Done**, plus portfolio ingestion, Google sign-in, input guardrails, AI extraction fixed (decision log). |
 | 2 | Scout with fallbacks, dedupe, Matcher, ATS scorer, Classifier, Jobs screen, digest email with signed Apply links | **Done.** Verified live: 3 JSearch queries, 27 new jobs, digest delivered with working Apply links. |
-| 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | **Next.** Not started |
-| 4 | Email apply flow (attachments, humanized email, SMTP send) | Not started |
+| 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | **Done.** Verified live with Groq + bge-small: 7 bullets rewritten, 26 claims checked automatically, 1 sent to the user. |
+| 4 | Email apply flow (attachments, humanized email, SMTP send) | **Next.** Not started |
 | 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | Not started |
 | 6 | Coach and growth plans with GitHub verification; Activity screen | Not started |
 | 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | Not started |
@@ -84,6 +84,27 @@ automatically at startup. The demo resume is fictional (Ayesha Khan, `fixtures/d
 Before deploying: do not copy `EMAIL_REDIRECT_TO` to production (a development setting that sends
 every email to one inbox), and set `INTERNAL_TOKEN` if a cron will call `/internal/run-scout`.
 
+## 5b. Phase 3: what was built
+
+- Tables `applications` and `claims`, `resume_lines.bulleted` (migration 0006). Re-upload the
+  resume once so old lines get their bullet flags.
+- CV blocks (`domain/cv.py`): every block is one resume line. Only bullets in summary,
+  experience and projects may be rewritten, one line per bullet, and reordered only within their
+  entry, so a result can't move between jobs. Titles, education and skills stay word for word.
+- Tailor (`services/tailor.py`): Groq rewrites toward the job's keywords; rewrites that break the
+  style rules (`domain/style.py`) keep the user's words. Without an LLM, bullets are reordered by
+  relevance.
+- Verifier (`domain/claims.py`, `services/verifier.py`): code pass (numbers, skills, degrees,
+  employers) plus an LLM claim pass; routing per spec section 5 with bge-small similarity between
+  each rewritten bullet and its source line (`INFER_THRESHOLD`). Blocklisted values are cut from
+  the text automatically.
+- Gate 2 (`services/applications.py`): Confirm (link or note, becomes `user_confirmed` evidence
+  and verifies the same claim everywhere), Edit (re-routed), Remove, Mark false (blocklist).
+  Approve needs zero open claims; the PDF (`integrations/pdf.py`, fpdf2) downloads only then.
+- ATS after counts a keyword only if the ledger or the original resume supports it (property test).
+- Frontend: Apply Workspace (`/jobs/:id/workspace`): job text, tailored CV with badges and source
+  tooltips, Needs-you panel (keys Y, E, R), ATS gauge, counters, Approve and download.
+
 ## 6. Useful snippets
 
 LLM probe (prints model, OK or error type; never the key):
@@ -126,5 +147,9 @@ Check which `.env` keys are set without printing values:
 | One-line commit messages, no AI attribution | Owner's rule |
 | Recorded jobs only when every live source fails | Old postings shown when live sources merely found nothing would mislead |
 | Match score smoothed toward 50% by a prior of weight 2 | Short postings naming one skill scored 100; the ATS formula stays exactly as specified |
+| fpdf2 for the CV PDF instead of WeasyPrint | Pure Python: same output in Docker, CI and on Windows; text-only one-column layout is ATS-safe |
+| Gates as statuses and API calls instead of LangGraph interrupts | Each gate already persists in Postgres; LangGraph added weight without a new capability under the deadline |
+| Tailor rewrites one source line per bullet, within its entry | Merging or moving lines could attach a result to the wrong job |
+| Similarity between the whole rewritten bullet and its source line | A short claim ("Redis") against a long line scores low by construction |
 | YAKE phrases: 2-3 words, repeated, no job titles or filler | Single YAKE words ("build", "model") were noise that penalised every CV |
 | LLM chain: Groq gpt-oss-120b, gpt-oss-20b, Gemini 3.8 Flash, Gemini 3.5 Flash-Lite; strict JSON schema; reasoning effort low; 8192 tokens | gpt-oss spent the 2048-token budget on reasoning (8 facts) and gpt-oss-20b rejected json_object. Now 31 to 33 facts with 0 rejected on the demo resume, roles and employers included. Extraction prompt asks for verbatim spans because code rejects any word not on the cited line |

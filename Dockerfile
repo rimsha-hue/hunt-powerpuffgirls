@@ -15,12 +15,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     APP_ENV=production \
-    PORT=8000
-
-# WeasyPrint system libraries (used for CV PDFs from Phase 3).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
-    && rm -rf /var/lib/apt/lists/*
+    PORT=8000 \
+    EMBEDDING_CACHE_DIR=/srv/models
 
 WORKDIR /srv
 
@@ -29,6 +25,9 @@ COPY pyproject.toml ./
 RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > requirements.txt \
     && pip install -r requirements.txt
 
+# The Verifier's embedding model, downloaded at build time so startup needs no network.
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/srv/models')"
+
 COPY alembic.ini ./
 COPY data/ ./data/
 COPY fixtures/ ./fixtures/
@@ -36,10 +35,11 @@ COPY scripts/start.sh ./scripts/start.sh
 COPY app/ ./app/
 COPY --from=frontend /build/dist ./frontend/dist
 
-# Writable dir for the SQLite fallback; production sets DATABASE_URL to Neon.
+# Writable dir for the SQLite fallback (production sets DATABASE_URL to Neon), and the model
+# cache, where the Hugging Face loader writes lock files when it opens the model.
 RUN useradd --system --no-create-home appuser \
     && mkdir -p /srv/var \
-    && chown appuser /srv/var \
+    && chown -R appuser /srv/var /srv/models \
     && chmod +x scripts/start.sh
 ENV DATABASE_URL=sqlite+aiosqlite:////srv/var/power_hunt.db
 USER appuser

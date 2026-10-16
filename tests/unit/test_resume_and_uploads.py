@@ -41,6 +41,20 @@ class TestSplitResume:
             "Second bullet",
         ]
 
+    def test_a_dated_entry_title_after_a_long_bullet_starts_a_new_entry(self) -> None:
+        text = (
+            "EXPERIENCE\n"
+            "Machine Learning Engineer, Nimbus Labs, Jul 2023 - Present\n"
+            "• Shipped FastAPI microservices on Docker and AWS ECS with GitHub Actions CI/CD\n"
+            "Software Engineer Intern, Acme Analytics, Islamabad, Jun 2022 - Aug 2022\n"
+            "• Automated ETL pipelines in Apache Airflow\n"
+        )
+        lines = split_resume(text)
+        assert [(line.text, line.bulleted) for line in lines[2:4]] == [
+            ("Shipped FastAPI microservices on Docker and AWS ECS with GitHub Actions CI/CD", True),
+            ("Software Engineer Intern, Acme Analytics, Islamabad, Jun 2022 - Aug 2022", False),
+        ]
+
     def test_hyphenation_versus_real_hyphens(self) -> None:
         text = (
             "EXPERIENCE\n"

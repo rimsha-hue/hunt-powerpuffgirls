@@ -14,7 +14,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import __version__
-from app.api import auth, health, jobs, ledger, meta, profile
+from app.api import applications, auth, health, jobs, ledger, meta, profile
 from app.api.ratelimit import RateLimiter
 from app.assets import RECORDED_JOBS
 from app.config import Settings, get_settings
@@ -22,6 +22,7 @@ from app.db.session import DatabaseProbe, create_engine, create_session_factory,
 from app.domain.locations import LocationIndex, load_geonames
 from app.domain.taxonomy import default_taxonomy
 from app.integrations.email import EmailProvider, NullEmailProvider, SmtpEmailProvider
+from app.integrations.embeddings import EmbeddingSimilarity, LexicalSimilarity, Similarity
 from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
 from app.integrations.jobs.base import JobSource
@@ -110,6 +111,7 @@ def create_app(
     locations: LocationIndex | None = None,
     job_sources: ScoutSources | None = None,
     email: EmailProvider | None = None,
+    similarity: Similarity | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, settings.log_json)
@@ -165,6 +167,11 @@ def create_app(
             locations=location_index,
             settings=settings,
         )
+        # The embedding model loads in the background; until then the Verifier uses the lexical
+        # similarity, which only ever sends more claims to the user.
+        loading = None
+        if isinstance(app.state.similarity, EmbeddingSimilarity):
+            loading = asyncio.create_task(app.state.similarity.load())
         app.state.scheduler = ScoutScheduler(app.state.scout_runner, settings.scout_interval_hours)
         if settings.scheduler_enabled:
             app.state.scheduler.start()
@@ -173,6 +180,8 @@ def create_app(
         )
         yield
         app.state.scheduler.shutdown()
+        if loading is not None and not loading.done():
+            loading.cancel()
         if isinstance(app.state.locations, asyncio.Task) and not app.state.locations.done():
             app.state.locations.cancel()
         await app.state.db_probe.close()
@@ -191,6 +200,11 @@ def create_app(
     app.state.settings = settings
     app.state.taxonomy = default_taxonomy()
     app.state.llm = llm or build_llm(settings)
+    app.state.similarity = similarity or (
+        EmbeddingSimilarity(settings.embedding_model, settings.embedding_cache_dir)
+        if settings.embeddings_enabled
+        else LexicalSimilarity()
+    )
     app.state.rate_limiter = RateLimiter(settings.rate_limit_storage_uri, settings.rate_limits)
     app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
     app.add_middleware(
@@ -199,7 +213,15 @@ def create_app(
         upload_limit_bytes=settings.max_upload_mb * 1024 * 1024,
     )
 
-    routers = (health.router, auth.router, profile.router, ledger.router, meta.router, jobs.router)
+    routers = (
+        health.router,
+        auth.router,
+        profile.router,
+        ledger.router,
+        meta.router,
+        jobs.router,
+        applications.router,
+    )
     for router in routers:
         app.include_router(router)
 

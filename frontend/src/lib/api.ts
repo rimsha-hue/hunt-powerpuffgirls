@@ -264,3 +264,52 @@ export interface ScoutRun {
   digest_sent: number
   digest_note: string | null
 }
+
+export type ClaimBucket = 'verified' | 'inferred' | 'needs_you' | 'blocked' | 'removed'
+
+export interface CvBlock {
+  kind: 'heading' | 'title' | 'bullet' | 'text'
+  section: string
+  text: string
+  original: string
+  line_no: number
+  entry: number
+  rewritten: boolean
+}
+
+export interface Claim {
+  id: number
+  block_index: number
+  text: string
+  type: FactType
+  span_start: number
+  span_end: number
+  bucket: ClaimBucket
+  origin: 'code' | 'llm'
+  similarity: number | null
+  user_decision: 'confirmed' | 'edited' | 'removed' | 'false' | null
+  source: { label: string; detail: string | null; url: string | null } | null
+}
+
+export interface Application {
+  id: number
+  job_id: number
+  status: 'draft' | 'cv_approved'
+  method: ApplyMethod
+  note: string | null
+  blocks: CvBlock[]
+  claims: Claim[]
+  ats: { before: number; after: number; matched: string[]; missing: string[]; checks: Record<string, boolean> }
+  questions_asked: number
+  needs_you: number
+  checked_automatically: number
+  blocked: number
+  cv_approved_at: string | null
+  updated_at: string
+}
+
+export type ClaimAction =
+  | { action: 'confirm'; url?: string; note?: string }
+  | { action: 'edit'; text: string }
+  | { action: 'remove' }
+  | { action: 'false' }

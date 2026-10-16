@@ -9,7 +9,7 @@
 """
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -268,10 +268,22 @@ def format_checks(cv: CvDocument) -> dict[str, bool]:
     return checks
 
 
-def score_cv(keywords: Sequence[Keyword], cv: CvDocument, taxonomy: Taxonomy) -> AtsResult:
+def score_cv(
+    keywords: Sequence[Keyword],
+    cv: CvDocument,
+    taxonomy: Taxonomy,
+    supported: Collection[str] | None = None,
+) -> AtsResult:
+    """`supported`, for a generated CV: keyword keys the user's evidence backs. A keyword found in
+    the CV counts only if it is supported, so tailoring can never raise the score with a keyword
+    the ledger can't prove (spec section 6)."""
     cv_skills = {name.lower() for name in taxonomy.skills_in(cv.text)}
     folded_cv = fold(cv.text)
-    matched = [k for k in keywords if keyword_found(k, cv_skills, folded_cv)]
+    matched = [
+        k
+        for k in keywords
+        if keyword_found(k, cv_skills, folded_cv) and (supported is None or k.key in supported)
+    ]
     missing = [k for k in keywords if k not in matched]
     total = sum(k.weight for k in keywords)
     # A posting with no recognisable keywords gives the CV nothing to cover.
@@ -289,3 +301,16 @@ def cv_from_lines(lines: Iterable[tuple[str, str]]) -> CvDocument:
         text="\n".join(text for _section, text in rows),
         sections=frozenset(section for section, _text in rows),
     )
+
+
+def supported_keys(
+    keywords: Sequence[Keyword],
+    original: CvDocument,
+    ledger_skills: Collection[str],
+    taxonomy: Taxonomy,
+) -> set[str]:
+    """Keyword keys a tailored CV may use: skills the ledger proves, plus any keyword the user's
+    own resume already contains."""
+    already = {k.key for k in score_cv(keywords, original, taxonomy).matched}
+    proven = {k.key for k in keywords if k.kind == "skill" and k.key in ledger_skills}
+    return already | proven

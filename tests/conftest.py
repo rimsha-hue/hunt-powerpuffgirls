@@ -104,6 +104,7 @@ def settings(database_url: str, static_dir: Path) -> Settings:
         log_json=False,
         demo_user_email="demo@example.com",
         scheduler_enabled=False,
+        embeddings_enabled=False,
         _env_file=None,  # type: ignore[call-arg]
     )
 

@@ -186,7 +186,7 @@ def degree_counts_as_evidence(line: ParsedLine) -> bool:
     return line.section == "education" and not _ASPIRATION_RE.search(line.text)
 
 
-def _is_version_number(text: str, q: Quantity) -> bool:
+def is_version_number(text: str, q: Quantity) -> bool:
     """A number that is part of a name, not a result: "Gemini 2.0 Flash", "mBART-50", "GPT-4"."""
     if q.unit in _NON_NOUN_UNITS or q.unit.startswith("gpa/"):
         return False
@@ -211,7 +211,7 @@ def _metric_facts(line: ParsedLine, context: str | None) -> list[Fact]:
         if q.unit.startswith("gpa/"):
             facts.append(Fact(q.surface, "metric", q.key, line.line_no))
             continue
-        if line.section not in METRIC_SECTIONS or _is_version_number(line.text, q):
+        if line.section not in METRIC_SECTIONS or is_version_number(line.text, q):
             continue
         groups.setdefault(_clause_span(line.text, q.start), []).append(q)
     for span, quantities in groups.items():

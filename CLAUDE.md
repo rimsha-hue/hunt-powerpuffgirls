@@ -15,7 +15,8 @@ own confirmation). When the system cannot prove something, it asks the user.
 - Deadline: 17 October 2026, 12:45 PM PKT. Deploy target: Alternate Clouds, one Docker container.
 - Judging: technical execution 25, usefulness 20, theme 15, creativity 15, automation depth 15,
   UX 10. Grayhat (security engineers) are judges, so security and reliability are visible.
-- Status: Phases 0, 1 and 2 done. Phase 3 (Tailor, Verifier, Needs-you panel, CV PDF) is next.
+- Status: Phases 0 to 3 done. Phase 4 (email apply flow: attachments, humanized email, SMTP
+  send) is next.
   See `docs/HANDOVER.md` for the exact state and known issues.
 
 ## 2. How to work here
@@ -58,7 +59,7 @@ cd frontend; npx oxlint          # frontend lint
 $env:DATABASE_URL="sqlite+aiosqlite:///./scratch.db"; .\.venv\Scripts\alembic upgrade head
 .\.venv\Scripts\alembic revision --autogenerate -m "what changed" --rev-id 0005
 
-# Keep .env in line with .env.example without losing values (backs up to .env.bak)
+# Add settings declared in app/config.py to .env without losing values (backs up to .env.bak)
 .\.venv\Scripts\python scripts\sync_env.py
 ```
 
@@ -80,8 +81,8 @@ Layers (details in `docs/ARCHITECTURE.md`):
 - **Deterministic truth.** The LLM writes language and *proposes* facts. Code decides what is
   true, what score something gets and what status it has (`app/domain/ledger.py`).
 - **Configuration vs code.** Anything that varies by environment (URLs, keys, limits, timeouts,
-  sizes, worker counts, trusted proxies) is a setting in `app/config.py`, documented in
-  `.env.example`. Domain rules (what counts as evidence, weights in the ATS formula) are named
+  sizes, worker counts, trusted proxies) is a setting in `app/config.py`, documented there with
+  a comment (there is no `.env.example`; `scripts/sync_env.py` reads the settings). Domain rules (what counts as evidence, weights in the ATS formula) are named
   constants in code with tests. The frontend never duplicates a server limit: it reads
   `/api/meta/config`.
 - **Dependency injection.** Shared clients live on `app.state` (built in `create_app` lifespan)
@@ -136,8 +137,12 @@ normaliser with tests, suggestions endpoint if the value set is large.
   name always outranks alternates.
 - **Ruff `--fix` removes imports that are unused at that moment.** Add the import after the code
   that uses it, or rerun mypy after fixing.
-- **psycopg async needs the selector event loop on Windows.** Uvicorn sets it up; a standalone
-  script against Neon must call `asyncio.run(main(), loop_factory=asyncio.SelectorEventLoop)`.
+- **psycopg async needs the selector event loop on Windows.** `uvicorn --reload` uses it, plain
+  `uvicorn` on Windows does not; a standalone script against Neon must call
+  `asyncio.run(main(), loop_factory=asyncio.SelectorEventLoop)`. Uvicorn's reload also can't stop
+  the old process when started from a shell without a console; prefer `docker compose up`.
+- **LLM text is normalised before matching.** Models write U+2011 hyphens, no-break spaces and
+  "3×"; `domain/cv.py` turns them plain, or claims and ATS keywords stop matching.
 - **JSearch moved to `/search-v2`** and its free tier allows 200 requests a month. Each Scout run
   spends `SCOUT_MAX_QUERIES` per user; the scheduler's first run waits a full interval so dev
   reloads don't spend quota. Remotive ignores its `search` parameter and Arbeitnow has none, so

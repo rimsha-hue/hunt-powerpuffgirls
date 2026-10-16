@@ -27,6 +27,8 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "yake>=0.4.8",
     "apscheduler>=3.10,<4",
+    "fastembed>=0.5",
+    "fpdf2>=2.8",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +52,7 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [[tool.mypy.overrides]]
-module = ["pdfplumber.*", "docx.*", "litellm.*", "geonamescache.*", "yake.*", "apscheduler.*"]
+module = ["pdfplumber.*", "docx.*", "litellm.*", "geonamescache.*", "yake.*", "apscheduler.*", "fastembed.*", "fpdf.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

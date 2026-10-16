@@ -36,7 +36,7 @@ It finds jobs, scores the fit, tailors your CV and prepares each application, an
 py -3.12 -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 cd frontend; npm ci; cd ..
-copy .env.example .env      # then fill in the values (see Configuration)
+.\.venv\Scripts\python scripts\sync_env.py --demo-account   # writes .env with every setting; fill in the keys
 ```
 
 ### Day-to-day development
@@ -78,9 +78,9 @@ Production refuses to start without a `SECRET_KEY` of at least 32 characters.
 
 ## Configuration
 
-Every setting is documented in [.env.example](.env.example). Keep comments on their own lines: Docker and hosting dashboards treat anything after `=` as the value.
+Every setting is declared and documented in one place, [app/config.py](app/config.py); there is no template file. `scripts/sync_env.py` writes them into `.env` with their defaults. Keep comments on their own lines: Docker and hosting dashboards treat anything after `=` as the value.
 
-After pulling changes that add settings, update your `.env` without losing any values:
+After pulling changes that add settings, add them to your `.env` without losing any values:
 
 ```powershell
 .\.venv\Scripts\python scripts\sync_env.py                 # adds new keys, keeps yours, backs up to .env.bak
@@ -106,7 +106,7 @@ Migrations run automatically at container start (`alembic upgrade head`). To cre
 ```powershell
 $env:DATABASE_URL="sqlite+aiosqlite:///./scratch.db"
 .\.venv\Scripts\alembic upgrade head
-.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0006
+.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0007
 Remove-Item scratch.db; Remove-Item Env:DATABASE_URL
 ```
 

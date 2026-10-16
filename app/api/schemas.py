@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -246,3 +246,67 @@ class ScoutRunOut(BaseModel):
     sources: list[SourceOutcomeOut]
     digest_sent: int
     digest_note: str | None
+
+
+class CvBlockOut(BaseModel):
+    kind: str
+    section: str
+    text: str
+    original: str
+    line_no: int
+    entry: int
+    rewritten: bool
+
+
+class ClaimSourceOut(BaseModel):
+    label: str  # "Resume", "GitHub", "Confirmed by you", "Your resume line"
+    detail: str | None
+    url: str | None
+
+
+class ClaimOut(BaseModel):
+    id: int
+    block_index: int
+    text: str
+    type: str
+    span_start: int
+    span_end: int
+    bucket: str
+    origin: str
+    similarity: float | None
+    user_decision: str | None
+    source: ClaimSourceOut | None
+
+
+class AtsAfterOut(BaseModel):
+    before: int
+    after: int
+    matched: list[str]
+    missing: list[str]
+    checks: dict[str, bool]
+
+
+class ApplicationOut(BaseModel):
+    id: int
+    job_id: int
+    status: str
+    method: str
+    note: str | None
+    blocks: list[CvBlockOut]
+    claims: list[ClaimOut]
+    ats: AtsAfterOut
+    questions_asked: int
+    needs_you: int
+    checked_automatically: int
+    blocked: int
+    cv_approved_at: datetime | None
+    updated_at: datetime
+
+
+class ClaimDecisionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["confirm", "edit", "remove", "false"]
+    url: AnyHttpUrl | None = None
+    note: str | None = Field(default=None, max_length=280)
+    text: str | None = Field(default=None, max_length=300)
