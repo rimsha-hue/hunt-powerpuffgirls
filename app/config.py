@@ -62,12 +62,17 @@ class Settings(BaseSettings):
 
     # --- LLM (LiteLLM ids; Groq models without the provider prefix) ---
     groq_api_key: SecretStr | None = None
-    llm_primary_model: str = "llama-3.3-70b-versatile"
-    llm_fallback_model: str = "llama-3.1-8b-instant"
+    llm_primary_model: str = "openai/gpt-oss-120b"
+    llm_fallback_model: str = "openai/gpt-oss-20b"
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
+    # Tried after gemini_model; a lighter model stays available when the main one is overloaded.
+    gemini_fallback_model: str | None = "gemini-3.5-flash-lite"
     llm_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
-    llm_max_tokens: int = Field(default=2048, ge=64, le=8192)
+    # The budget covers hidden reasoning as well as the answer, so keep it generous.
+    llm_max_tokens: int = Field(default=8192, ge=64, le=32768)
+    # Reasoning models spend the output budget thinking; extraction needs little of it.
+    llm_reasoning_effort: Literal["low", "medium", "high"] | None = "low"
 
     # --- Outbound HTTP ---
     http_timeout_seconds: float = Field(default=10.0, gt=0, le=60)

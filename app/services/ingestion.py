@@ -43,18 +43,32 @@ MIN_RESUME_LINES = 3
 # Below this much readable text, a page is probably rendered by JavaScript; ask Jina Reader.
 MIN_PAGE_TEXT = 300
 
+# Code accepts a proposed fact only when every word and number in claim_text appears on the cited
+# line (domain/ledger.py is_supported_by_line), so the prompt asks for verbatim copies.
 EXTRACTION_SYSTEM = (
     "You extract verifiable facts about a job candidate from a document they wrote (a resume or a "
-    "portfolio page), given as numbered lines like [L12] text. Return atomic facts only: one skill, "
-    "one employer, one role, one degree, one certification, one project or one quantified result "
-    "per fact. Each fact must cite the single line number it comes from and use wording that "
-    "appears on that line. Never infer, generalise or add anything not written on the cited line."
+    "portfolio page). Each line is given as [L12] (section) text: L12 is the line number and the "
+    "section in brackets is a label we added, not part of the text. Return atomic facts: one "
+    "skill, employer, role, degree, certification, project or quantified result per fact. Each "
+    "fact cites the one line it comes from in line_id, and its claim_text is copied word for word "
+    "from that line. Never paraphrase, expand abbreviations, combine lines, or add a word or number "
+    "that is not on the cited line. Code checks every fact against its line and discards any "
+    "that do not match."
 )
 EXTRACTION_TASK = (
-    "Extract the candidate's facts. Types: skill (a technology, tool or method), metric (a result "
-    "with a number, quote the clause), employer (company or organisation name only), role (job "
-    "title only), degree, certification, project (project name), personal (spoken languages, "
-    "location, work authorisation). Skip contact details. At most 120 facts."
+    "List every fact the document states, line by line, covering all sections. Types:\n"
+    "- skill: one language, framework, library, tool, platform or method per fact, as written "
+    '(a line "Python, SQL, Power BI" gives three skills).\n'
+    "- role: the job title only, without employer or dates.\n"
+    "- employer: the company or organisation name only, without location or dates.\n"
+    "- degree: the degree as written, from education lines only. Skip degrees the candidate only "
+    "plans to pursue.\n"
+    "- certification: the certificate or course name as written.\n"
+    "- project: the project name only.\n"
+    "- metric: the clause that states a result with a number, for example "
+    '"cut report time by 40%". Keep the number and its unit exactly as written.\n'
+    "- personal: spoken languages, location and work authorisation.\n"
+    "Skip contact details (name, email, phone, links). At most 120 facts."
 )
 
 

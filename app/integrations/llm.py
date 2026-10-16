@@ -65,10 +65,61 @@ def _strip_fences(raw: str) -> str:
     return fenced.group(1) if fenced else raw
 
 
+# Keywords that strict structured-output modes reject. Pydantic still enforces them on the reply.
+_UNCONSTRAINED_KEYWORDS = frozenset(
+    {
+        "title",
+        "default",
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "minItems",
+        "maxItems",
+        "pattern",
+        "format",
+    }
+)
+
+
+def strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """A provider-portable copy of a Pydantic JSON Schema for constrained decoding.
+
+    References are inlined, every object closes (`additionalProperties: false`) and lists all of
+    its properties as required, and validation-only keywords are dropped. That is the subset Groq
+    strict mode and Gemini response schemas both accept."""
+    defs: dict[str, Any] = schema.get("$defs", {})
+
+    def convert(node: Any) -> Any:
+        if isinstance(node, list):
+            return [convert(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            return convert(defs[node["$ref"].rsplit("/", 1)[-1]])
+        out = {
+            key: convert(value)
+            for key, value in node.items()
+            if key not in _UNCONSTRAINED_KEYWORDS and key != "$defs"
+        }
+        if out.get("type") == "object" and "properties" in out:
+            out["required"] = list(out["properties"])
+            out["additionalProperties"] = False
+        return out
+
+    result: dict[str, Any] = convert(schema)
+    return result
+
+
 @dataclass(frozen=True)
 class ModelSpec:
-    model: str  # LiteLLM id, e.g. "groq/llama-3.3-70b-versatile"
+    model: str  # LiteLLM id, e.g. "groq/openai/gpt-oss-120b"
     api_key: str
+    # None leaves the provider default. Gemini 3 models are tuned for their default temperature
+    # and can loop on long structured answers at 0.
+    temperature: float | None = 0
 
 
 class NullLLM:
@@ -85,35 +136,68 @@ class NullLLM:
 class LiteLLMClient:
     configured = True
 
-    def __init__(self, models: list[ModelSpec], timeout: float, max_tokens: int) -> None:
+    def __init__(
+        self,
+        models: list[ModelSpec],
+        timeout: float,
+        max_tokens: int,
+        reasoning_effort: str | None = None,
+    ) -> None:
         if not models:
             raise ValueError("LiteLLMClient needs at least one model")
         self.models = models
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
 
-    async def _call(self, spec: ModelSpec, messages: list[dict[str, str]]) -> str:
+    async def _call(
+        self,
+        spec: ModelSpec,
+        messages: list[dict[str, str]],
+        response_format: dict[str, Any],
+    ) -> str:
         import litellm  # heavy import, deferred until first use
 
+        options: dict[str, Any] = {}
+        if spec.temperature is not None:
+            options["temperature"] = spec.temperature
+        if self.reasoning_effort:
+            options["reasoning_effort"] = self.reasoning_effort
         response: Any = await litellm.acompletion(
             model=spec.model,
             api_key=spec.api_key,
             messages=messages,
-            temperature=0,
             max_tokens=self.max_tokens,
             timeout=self.timeout,
             num_retries=2,  # LiteLLM retries 429 and 5xx with backoff
-            response_format={"type": "json_object"},
+            response_format=response_format,
+            # A model without reasoning controls ignores reasoning_effort instead of failing.
+            drop_params=True,
+            **options,
         )
-        content = response.choices[0].message.content
+        choice = response.choices[0]
+        content = choice.message.content
         if not isinstance(content, str) or not content.strip():
+            # "length" means the budget ran out before the answer, usually spent on reasoning.
+            logger.warning(
+                "llm_empty_response", model=spec.model, finish_reason=choice.finish_reason
+            )
             raise LLMOutputInvalidError("The model returned an empty response.")
         return content
 
     async def generate(
         self, *, schema: type[T], system: str, task: str, data: Mapping[str, str]
     ) -> T:
-        schema_json = json.dumps(schema.model_json_schema(), separators=(",", ":"))
+        json_schema = schema.model_json_schema()
+        schema_json = json.dumps(json_schema, separators=(",", ":"))
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema.__name__,
+                "schema": strict_json_schema(json_schema),
+                "strict": True,
+            },
+        }
         user_content = "\n\n".join(
             [
                 task,
@@ -128,13 +212,16 @@ class LiteLLMClient:
 
         for spec in self.models:
             try:
-                raw = await self._call(spec, messages)
+                raw = await self._call(spec, messages, response_format)
             except LLMOutputInvalidError:
                 raise
             except Exception as exc:
                 logger.warning(
                     "llm_provider_failed", model=spec.model, error_type=type(exc).__name__
                 )
+                # Provider messages explain rejections (bad parameter, quota); they never echo
+                # the prompt, but keep them at debug and short.
+                logger.debug("llm_provider_error", model=spec.model, message=str(exc)[:300])
                 continue
 
             try:
@@ -152,7 +239,8 @@ class LiteLLMClient:
                     },
                 ]
                 try:
-                    return schema.model_validate_json(_strip_fences(await self._call(spec, repair)))
+                    repaired = await self._call(spec, repair, response_format)
+                    return schema.model_validate_json(_strip_fences(repaired))
                 except (ValidationError, Exception) as exc:
                     logger.warning(
                         "llm_output_invalid", model=spec.model, error_type=type(exc).__name__
@@ -174,9 +262,15 @@ def build_llm(settings: Settings) -> StructuredLLM:
         if settings.llm_fallback_model:
             models.append(ModelSpec(f"groq/{settings.llm_fallback_model}", key))
     if settings.gemini_api_key and settings.gemini_api_key.get_secret_value():
-        models.append(
-            ModelSpec(f"gemini/{settings.gemini_model}", settings.gemini_api_key.get_secret_value())
-        )
+        key = settings.gemini_api_key.get_secret_value()
+        for name in (settings.gemini_model, settings.gemini_fallback_model):
+            if name:
+                models.append(ModelSpec(f"gemini/{name}", key, temperature=None))
     if not models:
         return NullLLM()
-    return LiteLLMClient(models, settings.llm_timeout_seconds, settings.llm_max_tokens)
+    return LiteLLMClient(
+        models,
+        settings.llm_timeout_seconds,
+        settings.llm_max_tokens,
+        settings.llm_reasoning_effort,
+    )

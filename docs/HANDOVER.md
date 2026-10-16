@@ -7,7 +7,7 @@ Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC
 | Phase | Scope (spec section 19) | State |
 |---|---|---|
 | 0 | Skeleton, Dockerfile, CI, health | **Done**. Deploy blocked by the platform (see section 4). |
-| 1 | Auth, demo seed, resume parsing, evidence ledger, GitHub ingestion, Onboarding and Ledger screens | **Done**, plus portfolio ingestion, Google sign-in, input guardrails. AI extraction weak (issue 1). |
+| 1 | Auth, demo seed, resume parsing, evidence ledger, GitHub ingestion, Onboarding and Ledger screens | **Done**, plus portfolio ingestion, Google sign-in, input guardrails, AI extraction fixed (decision log). |
 | 2 | Scout with fallbacks, dedupe, Matcher, ATS scorer, Classifier, Jobs screen, digest email with signed Apply links | **Next.** Not started. |
 | 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | Not started |
 | 4 | Email apply flow (attachments, humanized email, SMTP send) | Not started |
@@ -32,31 +32,18 @@ automatically at startup. The demo resume is fictional (Ayesha Khan, `fixtures/d
 
 ## 3. Known issues, most important first
 
-1. **AI extraction is weak (fix first in Phase 2 or before).** Probed on 16 Oct with the demo
-   resume and `LLM_MAX_TOKENS=2048`:
-   - `groq/openai/gpt-oss-120b` (primary) works but returns only about 8 facts: it is a
-     reasoning model and its reasoning consumes the output budget.
-   - `groq/openai/gpt-oss-20b` (fallback) returns `BadRequestError` from Groq for this request.
-   - `gemini/gemini-2.5-flash` returns JSON that fails the `ExtractionResult` schema even after
-     the repair retry.
-   Effect: roles, employers and certifications are often missing; code extraction still works.
-   Recommended fix: raise `LLM_MAX_TOKENS` (8192) and set reasoning effort low for gpt-oss;
-   extract per section (experience, projects, education) instead of the whole resume at once;
-   use JSON-schema structured output where the provider supports it (LiteLLM
-   `response_format` with a schema); log the provider error message (not just the type) at
-   debug level. Script used for probing: see "LLM probe" in section 6.
-2. **Deploy blocked by Alternate Clouds' builder**: `volume_placement_capacity` /
+1. **Deploy blocked by Alternate Clouds' builder**: `volume_placement_capacity` /
    "rebuild returned no job", even on a recreated service. Not our code (the image builds in CI
    and locally). Retry, or raise it with the organisers. Port 8000; set variables per README.
-3. **Health checks take about 1 second** from Pakistan to Neon (US East, Ohio). Fine for now; a
+2. **Health checks take about 1 second** from Pakistan to Neon (US East, Ohio). Fine for now; a
    deploy in US East will be fast. Don't lower `DB_HEALTH_TIMEOUT_SECONDS` below 5.
-4. Skill taxonomy has 370 skills; the spec asks for about 500. Grow it as Phase 2 job
+3. Skill taxonomy has 370 skills; the spec asks for about 500. Grow it as Phase 2 job
    descriptions reveal gaps (`data/skills_taxonomy.json`, keep tests green).
-5. Main JS bundle is about 160 KB gzipped (React + Motion). Acceptable; could use Motion's
+4. Main JS bundle is about 160 KB gzipped (React + Motion). Acceptable; could use Motion's
    `LazyMotion` later.
-6. `.env.bak` on the owner's machine holds a copy of the secrets (git-ignored). Delete after
+5. `.env.bak` on the owner's machine holds a copy of the secrets (git-ignored). Delete after
    confirming `.env` works.
-7. Uploaded resume files are not stored (only extracted lines). Intentional for privacy; Phase 3
+6. Uploaded resume files are not stored (only extracted lines). Intentional for privacy; Phase 3
    renders CVs from structured data, not the original file.
 
 ## 4. Deployment checklist (Alternate Clouds)
@@ -140,3 +127,4 @@ Check which `.env` keys are set without printing values:
 | Server-side sessions instead of JWT | Revocable (logout, delete my data), CSRF token per session |
 | GeoNames index loads in the background | App ready immediately; only lookups wait |
 | One-line commit messages, no AI attribution | Owner's rule |
+| LLM chain: Groq gpt-oss-120b, gpt-oss-20b, Gemini 3.8 Flash, Gemini 3.5 Flash-Lite; strict JSON schema; reasoning effort low; 8192 tokens | gpt-oss spent the 2048-token budget on reasoning (8 facts) and gpt-oss-20b rejected json_object. Now 31 to 33 facts with 0 rejected on the demo resume, roles and employers included. Extraction prompt asks for verbatim spans because code rejects any word not on the cited line |
