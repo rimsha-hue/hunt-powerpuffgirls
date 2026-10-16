@@ -1,6 +1,6 @@
 # Architecture
 
-How the code fits together today (end of Phase 2). For the full product spec see `SPEC.md`.
+How the code fits together today (end of Phase 3). For the full product spec see `SPEC.md`.
 
 ## Runtime shape
 
@@ -35,6 +35,7 @@ app/
     meta.py          /api/meta/config, location and role suggestions
     health.py        /health (db, llm, scheduler) and /ready
     jobs.py          Jobs list/detail, fetch, status, Gate 1, /apply links, /internal/run-scout
+    applications.py  Workspace: tailor, claim decisions, approve, cv.pdf
     deps.py          DB session, current user + CSRF, shared clients from app.state
     ratelimit.py     RateLimiter (limits library) + rate_limit("rule") dependency
     schemas.py       Request/response contracts
@@ -53,6 +54,9 @@ app/
     matching.py      Match score and missing skills from ledger evidence
     classify.py      Apply method (email/form/unknown), apply email, attachments
     status.py        Job status transitions
+    cv.py            Tailored CV blocks (one per resume line), rewrites within an entry
+    claims.py        Claim code pass and routing: Verified, Inferred, Needs you, blocked
+    style.py         Banned phrases and dashes
   integrations/
     llm.py           LiteLLM client: provider chain, data blocks, schema validation + repair
     resume_text.py   PDF/DOCX text: invisible-text filter, column detection, word gaps
@@ -62,6 +66,8 @@ app/
     google_oauth.py  Authorization code + PKCE + nonce, ID token checks
     jobs/            JSearch, Remotive, Arbeitnow, recorded postings (one interface, retries)
     email.py         EmailProvider; Gmail SMTP with retries on dropped connections
+    embeddings.py    bge-small similarity (fastembed), lexical fallback
+    pdf.py           CV PDF (fpdf2, bundled Public Sans)
   services/
     ingestion.py     Resume, portfolio and GitHub ingestion into the evidence ledger
     auth.py          argon2 passwords, server-side sessions, Google account linking
@@ -71,12 +77,15 @@ app/
     notifier.py      Digest email with signed Apply links
     apply_links.py   Issue and redeem single-use Apply tokens
     runner.py        Per-user run lock, Fetch now, APScheduler, internal trigger
+    tailor.py        Tailor (LLM rewrite with code checks, relevance fallback)
+    verifier.py      Claim extraction and routing; Gate 2 answers
+    applications.py  Workspace: tailor, verify, ATS after, approve
   db/
     models.py        users, profiles, auth_sessions, resume_lines, evidence, claim_blocklist, audit
     session.py       Engine factory, DatabaseProbe, ping
-    migrations/      Alembic (0001 to 0005)
+    migrations/      Alembic (0001 to 0006)
 frontend/src/
-  pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail (app pages are lazy-loaded)
+  pages/             Landing, Login, Onboarding, Ledger, Jobs, JobDetail, Workspace (app pages are lazy-loaded)
   components/        Layout (nav, Calm mode), Logo, ChipInput (combobox), FactList, Toast, ui
   lib/               api client (CSRF, field errors), session, config, calm, toast, cx
 data/                skills_taxonomy.json, job_titles.json

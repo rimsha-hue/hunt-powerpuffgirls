@@ -37,7 +37,8 @@ function RequireAuth(): ReactNode {
   if (!me) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   // A session opened by a digest Apply link covers that one job only.
   const scoped = me.scope_job_id !== null ? `/jobs/${me.scope_job_id}` : null
-  if (scoped && location.pathname !== scoped) return <Navigate to={scoped} replace />
+  const allowed = scoped && (location.pathname === scoped || location.pathname === `${scoped}/workspace`)
+  if (scoped && !allowed) return <Navigate to={scoped} replace />
   return <Outlet />
 }
 
@@ -54,6 +55,7 @@ const router = createBrowserRouter([
           { path: '/ledger', lazy: page(() => import('./pages/Ledger')) },
           { path: '/jobs', lazy: page(() => import('./pages/Jobs')) },
           { path: '/jobs/:id', lazy: page(() => import('./pages/JobDetail')) },
+          { path: '/jobs/:id/workspace', lazy: page(() => import('./pages/Workspace')) },
         ],
       },
     ],

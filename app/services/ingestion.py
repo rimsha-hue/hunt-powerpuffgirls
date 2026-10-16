@@ -239,6 +239,7 @@ async def ingest_resume(
             section=ln.section,
             line_no=ln.line_no,
             text=ln.text,
+            bulleted=ln.bulleted,
         )
         for ln in lines
     ]

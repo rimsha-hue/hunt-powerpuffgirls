@@ -95,6 +95,8 @@ class ResumeLine(Base):
     section: Mapped[str] = mapped_column(String(40))
     line_no: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
+    # A bullet describes the entry above it; the Tailor may rewrite and reorder only bullets.
+    bulleted: Mapped[bool] = mapped_column(default=False)
 
 
 class Evidence(Base):
@@ -193,6 +195,69 @@ class Notification(Base):
     kind: Mapped[str] = mapped_column(String(20))  # "digest"
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     job_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+
+
+class Application(Base):
+    """One application per job: the tailored CV and, from Phase 4, the email or form answers."""
+
+    __tablename__ = "applications"
+    __table_args__ = (UniqueConstraint("job_id", name="uq_applications_job"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = _user_fk()
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    method: Mapped[str] = mapped_column(String(10))
+    # draft -> cv_approved (Gate 2 passed); Phase 4 adds approved and sent.
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    tailored_cv_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    tailor_note: Mapped[str | None] = mapped_column(String(300))
+    resume_version: Mapped[int] = mapped_column(Integer, default=0)
+    ats_after: Mapped[int] = mapped_column(Integer, default=0)
+    ats_after_detail_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # Claims sent to the user when the CV was first verified; should fall job after job.
+    questions_asked: Mapped[int] = mapped_column(Integer, default=0)
+    cv_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cover_letter: Mapped[str | None] = mapped_column(Text)
+    email_subject: Mapped[str | None] = mapped_column(String(300))
+    email_body: Mapped[str | None] = mapped_column(Text)
+    attachments_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    answers_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    message_id: Mapped[str | None] = mapped_column(String(300))
+    follow_up_due: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Claim(Base):
+    """One atomic claim in generated text, with where it sits and how it was routed."""
+
+    __tablename__ = "claims"
+    __table_args__ = (Index("ix_claims_application_bucket", "application_id", "bucket"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = _user_fk()
+    block_index: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(String(500))
+    type: Mapped[str] = mapped_column(String(20))
+    normalized_value: Mapped[str] = mapped_column(String(500), default="")
+    span_start: Mapped[int] = mapped_column(Integer)
+    span_end: Mapped[int] = mapped_column(Integer)
+    # verified | inferred | needs_you | blocked | removed
+    bucket: Mapped[str] = mapped_column(String(12))
+    origin: Mapped[str] = mapped_column(String(8))  # "code" or "llm"
+    evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidence.id", ondelete="SET NULL"))
+    cited_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resume_lines.id", ondelete="SET NULL")
+    )
+    similarity: Mapped[float | None] = mapped_column(Float)
+    # confirmed | edited | removed | false, once the user answered a Needs-you claim
+    user_decision: Mapped[str | None] = mapped_column(String(12))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Audit(Base):

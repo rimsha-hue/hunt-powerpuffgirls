@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, ExternalLink, Paperclip, Target, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ExternalLink, Paperclip, Target, X } from 'lucide-react'
 import { motion } from 'motion/react'
-import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
+import { Highlighted } from '../components/Highlighted'
 import { MethodBadge, ScoreChip } from '../components/JobBits'
 import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { api, json, type Job, type JobDetail as Detail, type JobKeyword } from '../lib/api'
@@ -25,35 +25,6 @@ const CHECKS: Record<string, string> = {
   contact_info: 'Contact details',
   two_pages_max: 'Two pages or less',
   no_tables_or_images: 'No tables or images',
-}
-
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-/** The description as plain text, with the job's keywords marked. Never rendered as HTML. */
-function Highlighted({ text, keywords }: { text: string; keywords: JobKeyword[] }) {
-  const terms = [...new Set(keywords.map((k) => k.term))].sort((a, b) => b.length - a.length)
-  if (terms.length === 0) return <>{text}</>
-  const found = new Map(keywords.map((k) => [k.term.toLowerCase(), k.found]))
-  const pattern = new RegExp(`(?<![\\w+#])(${terms.map(escapeRegExp).join('|')})(?![\\w+#])`, 'gi')
-  const parts: ReactNode[] = []
-  let last = 0
-  for (const match of text.matchAll(pattern)) {
-    const start = match.index
-    parts.push(text.slice(last, start))
-    const isFound = found.get(match[0].toLowerCase())
-    parts.push(
-      <mark
-        key={start}
-        className={cx('rounded px-0.5 text-ink', isFound ? 'bg-buttercup' : 'bg-blush underline decoration-dotted')}
-        title={isFound ? 'In your CV' : 'Not in your CV yet'}
-      >
-        {match[0]}
-      </mark>,
-    )
-    last = start + match[0].length
-  }
-  parts.push(text.slice(last))
-  return <>{parts}</>
 }
 
 function KeywordChip({ keyword }: { keyword: JobKeyword }) {
@@ -181,8 +152,14 @@ export default function JobDetail() {
                 className="rounded-lg border-3 border-ink bg-buttercup p-3 text-sm font-semibold"
               >
                 <Target className="mb-1 size-5" aria-hidden />
-                On your list. Next the Tailor writes a CV for this job and the Verifier checks every claim before
-                anything goes out.
+                On your list. The Tailor writes a CV for this job and the Verifier checks every claim before anything
+                goes out.
+                <Link
+                  to={`/jobs/${j.id}/workspace`}
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border-3 border-ink bg-blossom px-4 py-2 font-semibold shadow-comic-sm"
+                >
+                  Open the workspace <ArrowRight className="size-4" aria-hidden />
+                </Link>
               </motion.div>
             ) : (
               <div className="flex flex-col gap-2">

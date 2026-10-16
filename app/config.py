@@ -124,7 +124,16 @@ class Settings(BaseSettings):
 
     # --- Later phases ---
     tavily_api_key: SecretStr | None = None
+
+    # --- Verifier (Phase 3) ---
+    # A rewritten line at least this similar to its source line may be Inferred (spec section 5).
     infer_threshold: float = Field(default=0.78, ge=0.0, le=1.0)
+    # Embeddings for that similarity (fastembed, CPU). Off: a lexical similarity, which scores
+    # lower and so asks the user more often.
+    embeddings_enabled: bool = True
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # Where the model files live; the Docker image downloads them here at build time.
+    embedding_cache_dir: Path | None = None
 
     static_dir: Path = ROOT_DIR / "frontend" / "dist"
 
