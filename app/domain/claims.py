@@ -32,7 +32,12 @@ Bucket = Literal["verified", "inferred", "needs_you", "blocked"]
 Origin = Literal["code", "llm"]
 
 # Organisation names written as "at Acme Corp" that the ledger may not know about.
-_AT_ORG_RE = re.compile(r"\bat ((?:[A-Z][\w&.'-]*)(?: (?:[A-Z][\w&.'-]*|&|of))*)")
+# Each word has two or more characters, so "at Nimbus Labs I built" stops before "I".
+_ORG_WORD = r"[A-Z][\w&'-]+(?:\.[\w&'-]+)*"
+_AT_ORG_RE = re.compile(rf"\bat ({_ORG_WORD}(?: (?:{_ORG_WORD}|&|of))*)")
+# Clause edges: a claim is also judged by its own clause, so framing words around it
+# ("..., showing a focus on cost") don't dilute how close it is to its source line.
+_CLAUSE_EDGE = re.compile(r"[,;:()]|\s[-\u2013\u2014]\s")
 
 
 @dataclass(frozen=True)
@@ -105,6 +110,24 @@ def code_claims(text: str, taxonomy: Taxonomy, known_employers: Iterable[str]) -
     for m in _AT_ORG_RE.finditer(text):
         found.append(FoundClaim(m.group(1), "employer", m.start(1), m.end(1), "code"))
     return found
+
+
+def outside(claims: Iterable[FoundClaim], text: str, phrases: Iterable[str]) -> list[FoundClaim]:
+    """Claims not inside any occurrence of `phrases`: naming the job applied for ("the Senior
+    Android Engineer role at Acme") says nothing about the candidate."""
+    spans = []
+    for phrase in phrases:
+        if len(phrase.strip()) < 2:
+            continue
+        for m in re.finditer(re.escape(phrase.strip()), text, re.I):
+            spans.append((m.start(), m.end()))
+    return [c for c in claims if not any(s <= c.start and c.end <= e for s, e in spans)]
+
+
+def clause_around(text: str, start: int, end: int) -> str:
+    left = max((m.end() for m in _CLAUSE_EDGE.finditer(text, 0, start)), default=0)
+    right = min((m.start() for m in _CLAUSE_EDGE.finditer(text, end)), default=len(text))
+    return text[left:right].strip()
 
 
 def merge(claims: Iterable[FoundClaim]) -> list[FoundClaim]:

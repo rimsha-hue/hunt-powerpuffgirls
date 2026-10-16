@@ -28,11 +28,21 @@ class EmailError(Exception):
 
 
 @dataclass(frozen=True)
+class Attachment:
+    filename: str
+    content_type: str  # "application/pdf"
+    data: bytes
+
+
+@dataclass(frozen=True)
 class OutgoingEmail:
     to: str
     subject: str
     text: str
     html: str | None = None
+    attachments: tuple[Attachment, ...] = ()
+    # Replies go to the applicant when the sending mailbox isn't theirs.
+    reply_to: str | None = None
 
 
 class EmailProvider(Protocol):
@@ -79,9 +89,19 @@ class SmtpEmailProvider:
         email["To"] = self.redirect_to or message.to
         email["Subject"] = message.subject
         email["Message-ID"] = make_msgid(domain=self.user.rsplit("@", 1)[-1])
+        if message.reply_to and message.reply_to.lower() != self.user.lower():
+            email["Reply-To"] = message.reply_to
         email.set_content(message.text)
         if message.html:
             email.add_alternative(message.html, subtype="html")
+        for item in message.attachments:
+            maintype, _, subtype = item.content_type.partition("/")
+            email.add_attachment(
+                item.data,
+                maintype=maintype,
+                subtype=subtype or "octet-stream",
+                filename=item.filename,
+            )
         return email
 
     def _send_sync(self, email: EmailMessage) -> None:

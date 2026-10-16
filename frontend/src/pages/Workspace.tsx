@@ -16,6 +16,7 @@ import {
 import { animate, motion, useMotionValue, useSpring, useTransform } from 'motion/react'
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
+import { EmailPanel } from '../components/EmailPanel'
 import { Highlighted } from '../components/Highlighted'
 import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
 import {
@@ -127,7 +128,7 @@ function BlockText({ block, claims, fresh }: { block: CvBlock; claims: Claim[]; 
 
 function TailoredCv({ app, showOriginal, fresh }: { app: Application; showOriginal: boolean; fresh: boolean }) {
   const byBlock = new Map<number, Claim[]>()
-  for (const claim of app.claims) byBlock.set(claim.block_index, [...(byBlock.get(claim.block_index) ?? []), claim])
+  for (const claim of app.claims.filter((c) => c.document === 'cv')) byBlock.set(claim.block_index, [...(byBlock.get(claim.block_index) ?? []), claim])
   return (
     <div className="flex flex-col gap-1 text-sm leading-relaxed">
       {app.blocks.map((block, index) => {
@@ -214,6 +215,18 @@ function AtsGauge({ before, after }: { before: number; after: number }) {
   )
 }
 
+const DOCUMENT_LABELS: Record<Claim['document'], string> = {
+  cv: 'CV',
+  email: 'Email',
+  cover_letter: 'Cover letter',
+}
+
+function documentBlocks(app: Application, claim: Claim): CvBlock[] {
+  if (claim.document === 'email') return app.email?.blocks ?? []
+  if (claim.document === 'cover_letter') return app.email?.cover_letter ?? []
+  return app.blocks
+}
+
 function NeedsYouCard({
   claim,
   block,
@@ -262,7 +275,9 @@ function NeedsYouCard({
       className="rounded-xl border-3 border-ink bg-white p-3 focus-visible:bg-blush"
       aria-label={`Needs you: ${claim.text}. Press Y to confirm, E to edit, R to remove.`}
     >
-      <p className="font-mono text-[11px] font-medium uppercase">{claim.type}</p>
+      <p className="font-mono text-[11px] font-medium uppercase">
+        {DOCUMENT_LABELS[claim.document]} · {claim.type}
+      </p>
       <p className="font-bold">{claim.text}</p>
       {block && <p className="mt-1 text-xs text-ink/80">“{block.text}”</p>}
       {mode === 'confirm' && (
@@ -417,6 +432,9 @@ export default function Workspace() {
   const open = app.claims.filter((c) => c.bucket === 'needs_you')
   const blocked = app.claims.filter((c) => c.bucket === 'blocked')
   const approved = app.status !== 'draft'
+  const sentenceRenderer = (claims: Claim[]) => (block: CvBlock, index: number) => (
+    <BlockText block={block} claims={claims.filter((c) => c.block_index === index)} fresh={fresh} />
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -489,7 +507,7 @@ export default function Workspace() {
                   <NeedsYouCard
                     key={claim.id}
                     claim={claim}
-                    block={app.blocks[claim.block_index]}
+                    block={documentBlocks(app, claim)[claim.block_index]}
                     busy={answer.isPending}
                     autoFocus={i === 0 && !answer.isPending}
                     onAnswer={(action) => answer.mutate({ claim, action })}
@@ -544,6 +562,8 @@ export default function Workspace() {
           )}
         </div>
       </div>
+
+      {approved && <EmailPanel app={app} jobId={j.id} renderBlock={sentenceRenderer} />}
     </div>
   )
 }

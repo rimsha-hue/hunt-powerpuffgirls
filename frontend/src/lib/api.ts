@@ -277,8 +277,11 @@ export interface CvBlock {
   rewritten: boolean
 }
 
+export type ClaimDocument = 'cv' | 'email' | 'cover_letter'
+
 export interface Claim {
   id: number
+  document: ClaimDocument
   block_index: number
   text: string
   type: FactType
@@ -291,10 +294,30 @@ export interface Claim {
   source: { label: string; detail: string | null; url: string | null } | null
 }
 
+export interface AttachmentItem {
+  kind: string
+  label: string
+  status: 'attached' | 'link' | 'uploaded' | 'missing' | 'waived'
+  detail: string | null
+}
+
+export interface EmailState {
+  recipient: string | null
+  subject: string | null
+  blocks: CvBlock[]
+  signature: string
+  cover_letter: CvBlock[]
+  attachments: AttachmentItem[]
+  note: string | null
+  blockers: string[]
+  sent_at: string | null
+  follow_up_due: string | null
+}
+
 export interface Application {
   id: number
   job_id: number
-  status: 'draft' | 'cv_approved'
+  status: 'draft' | 'cv_approved' | 'sent'
   method: ApplyMethod
   note: string | null
   blocks: CvBlock[]
@@ -306,6 +329,7 @@ export interface Application {
   blocked: number
   cv_approved_at: string | null
   updated_at: string
+  email: EmailState | null
 }
 
 export type ClaimAction =

@@ -63,3 +63,23 @@ def render_cv(blocks: Sequence[Block], *, title: str) -> bytes:
             pdf.set_font(FONT, "", 10)
             pdf.multi_cell(width, 5, block.text, new_x="LMARGIN", new_y="NEXT", align="L")
     return bytes(pdf.output())
+
+
+def render_letter(*, sender: str, contact: str, body: str, title: str) -> bytes:
+    """Cover letter: the sender's name and contact line, then the letter's paragraphs."""
+    pdf = _CvPdf()
+    pdf.set_title(title)
+    pdf.set_creator("Power Hunt")
+    pdf.add_page()
+    width = pdf.epw
+    pdf.set_font(FONT, "B", 16)
+    pdf.multi_cell(width, 8, sender, new_x="LMARGIN", new_y="NEXT", align="L")
+    if contact:
+        pdf.set_font(FONT, "", 9.5)
+        pdf.multi_cell(width, 5, contact, new_x="LMARGIN", new_y="NEXT", align="L")
+    pdf.ln(6)
+    pdf.set_font(FONT, "", 10.5)
+    for paragraph in body.split("\n\n"):
+        pdf.multi_cell(width, 5.5, paragraph.strip(), new_x="LMARGIN", new_y="NEXT", align="L")
+        pdf.ln(3)
+    return bytes(pdf.output())

@@ -106,7 +106,7 @@ Migrations run automatically at container start (`alembic upgrade head`). To cre
 ```powershell
 $env:DATABASE_URL="sqlite+aiosqlite:///./scratch.db"
 .\.venv\Scripts\alembic upgrade head
-.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0007
+.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0008
 Remove-Item scratch.db; Remove-Item Env:DATABASE_URL
 ```
 

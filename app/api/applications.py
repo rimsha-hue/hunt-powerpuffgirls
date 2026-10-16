@@ -4,7 +4,7 @@ the CV and download it as a PDF. An Apply-link session may work on its own job h
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import select
 
@@ -14,14 +14,22 @@ from app.api.ratelimit import rate_limit
 from app.api.schemas import (
     ApplicationOut,
     AtsAfterOut,
+    AttachmentOut,
     ClaimDecisionIn,
     ClaimOut,
     ClaimSourceOut,
     CvBlockOut,
+    EmailEditIn,
+    EmailOut,
+    WaiveIn,
 )
-from app.db.models import Application, Claim, Evidence, Job, ResumeLine
+from app.db.models import Application, Claim, Evidence, Job, ResumeLine, User
+from app.domain.compose import prose_text
+from app.domain.cv import Block
+from app.domain.uploads import UploadRejectedError, sniff_resume
 from app.integrations.embeddings import Similarity
-from app.integrations.pdf import render_cv
+from app.integrations.pdf import render_cv, render_letter
+from app.services import composer
 from app.services.applications import WorkspaceError, approve_cv, blocks_of, decide, prepare
 from app.services.verifier import DecisionError
 
@@ -102,6 +110,8 @@ async def _sources(db: Db, user_id: int, claims: list[Claim]) -> dict[int, Claim
 
 
 async def _out(db: Db, application: Application, job: Job) -> ApplicationOut:
+    user = await db.get(User, application.user_id)
+    assert user is not None  # applications cascade with their user
     claims = list(
         (
             await db.execute(
@@ -119,21 +129,11 @@ async def _out(db: Db, application: Application, job: Job) -> ApplicationOut:
         status=application.status,
         method=application.method,
         note=application.tailor_note,
-        blocks=[
-            CvBlockOut(
-                kind=b.kind,
-                section=b.section,
-                text=b.text,
-                original=b.original,
-                line_no=b.line_no,
-                entry=b.entry,
-                rewritten=b.rewritten,
-            )
-            for b in blocks_of(application)
-        ],
+        blocks=_blocks_out(blocks_of(application)),
         claims=[
             ClaimOut(
                 id=c.id,
+                document=c.document,
                 block_index=c.block_index,
                 text=c.text,
                 type=c.type,
@@ -162,6 +162,43 @@ async def _out(db: Db, application: Application, job: Job) -> ApplicationOut:
         blocked=sum(1 for c in claims if c.bucket == "blocked"),
         cv_approved_at=application.cv_approved_at,
         updated_at=application.updated_at,
+        email=await _email_out(db, application, user) if application.email_blocks_json else None,
+    )
+
+
+def _blocks_out(blocks: list[Block]) -> list[CvBlockOut]:
+    return [
+        CvBlockOut(
+            kind=b.kind,
+            section=b.section,
+            text=b.text,
+            original=b.original,
+            line_no=b.line_no,
+            entry=b.entry,
+            rewritten=b.rewritten,
+        )
+        for b in blocks
+    ]
+
+
+async def _email_out(db: Db, application: Application, user: User) -> EmailOut:
+    body = composer.email_text(application, user)
+    return EmailOut(
+        recipient=application.recipient,
+        subject=application.email_subject,
+        blocks=_blocks_out(blocks_of(application, "email")),
+        signature=body.split("\n\nBest regards,\n", 1)[-1],
+        cover_letter=_blocks_out(blocks_of(application, "cover_letter")),
+        attachments=[
+            AttachmentOut(
+                kind=i["kind"], label=i["label"], status=i["status"], detail=i.get("detail")
+            )
+            for i in application.attachments_json
+        ],
+        note=application.compose_note,
+        blockers=await composer.blockers(db, application),
+        sent_at=application.sent_at,
+        follow_up_due=application.follow_up_due,
     )
 
 
@@ -264,3 +301,167 @@ async def cv_pdf(job_id: int, principal: AnyPrincipal, db: Db) -> Response:
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.post("/jobs/{job_id}/application/compose", dependencies=[Depends(rate_limit("ingest"))])
+async def compose_email(
+    job_id: int,
+    principal: AnyPrincipal,
+    db: Db,
+    llm: LLM,
+    taxonomy: Tax,
+    similarity: Sim,
+    settings: AppSettings,
+) -> ApplicationOut:
+    """Flow C: draft the email (and cover letter if asked for) from the approved CV, verified."""
+    job = await _job(db, principal, job_id)
+    application = await _application(db, job)
+    try:
+        await composer.compose(
+            db,
+            principal.user,
+            job,
+            application,
+            llm=llm,
+            taxonomy=taxonomy,
+            similarity=similarity,
+            threshold=settings.infer_threshold,
+            now=datetime.now(UTC),
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    await db.flush()
+    return await _out(db, application, job)
+
+
+@router.put("/jobs/{job_id}/application/email")
+async def edit_email(
+    job_id: int,
+    body: EmailEditIn,
+    principal: AnyPrincipal,
+    db: Db,
+    llm: LLM,
+    taxonomy: Tax,
+    similarity: Sim,
+    settings: AppSettings,
+) -> ApplicationOut:
+    """The user edits the recipient, subject, body or cover letter. New wording is verified."""
+    job = await _job(db, principal, job_id)
+    application = await _application(db, job)
+    if application.sent_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This application was already sent.")
+    if not application.email_blocks_json:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Draft the email first.")
+    if body.recipient is not None:
+        application.recipient = str(body.recipient).lower()
+    if body.subject is not None:
+        application.email_subject = " ".join(body.subject.split())
+    options = {
+        "llm": llm,
+        "taxonomy": taxonomy,
+        "similarity": similarity,
+        "threshold": settings.infer_threshold,
+        "now": datetime.now(UTC),
+        "ignore": (job.title, job.company),
+    }
+    try:
+        if body.body is not None:
+            await composer.edit_prose(db, application, "email", body.body, **options)  # type: ignore[arg-type]
+        if body.cover_letter is not None and application.cover_letter_blocks_json:
+            await composer.edit_prose(db, application, "cover_letter", body.cover_letter, **options)  # type: ignore[arg-type]
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    await db.flush()
+    return await _out(db, application, job)
+
+
+@router.post(
+    "/jobs/{job_id}/application/files/{kind}", dependencies=[Depends(rate_limit("ingest"))]
+)
+async def upload_file(
+    job_id: int,
+    kind: str,
+    principal: AnyPrincipal,
+    db: Db,
+    settings: AppSettings,
+    file: Annotated[UploadFile, File(description="PDF or DOCX")],
+) -> ApplicationOut:
+    job = await _job(db, principal, job_id)
+    application = await _application(db, job)
+    limit = settings.max_upload_mb * 1024 * 1024
+    data = await file.read(limit + 1)
+    try:
+        file_kind = sniff_resume(data, limit)
+        await composer.add_file(
+            db,
+            application,
+            kind,
+            filename=file.filename or kind,
+            file_kind=file_kind,
+            data=data,
+            now=datetime.now(UTC),
+        )
+    except UploadRejectedError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _out(db, application, job)
+
+
+@router.post("/jobs/{job_id}/application/attachments/{kind}/waive")
+async def waive_attachment(
+    job_id: int, kind: str, body: WaiveIn, principal: AnyPrincipal, db: Db
+) -> ApplicationOut:
+    """The user explicitly sends without an item the posting asked for (or takes that back)."""
+    job = await _job(db, principal, job_id)
+    application = await _application(db, job)
+    try:
+        composer.waive(application, kind, body.waived)
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _out(db, application, job)
+
+
+@router.get("/jobs/{job_id}/application/cover-letter.pdf")
+async def cover_letter_pdf(job_id: int, principal: AnyPrincipal, db: Db) -> Response:
+    job = await _job(db, principal, job_id)
+    application = await _application(db, job)
+    letter = blocks_of(application, "cover_letter")
+    if not letter:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No cover letter for this application.")
+    user = principal.user
+    pdf = render_letter(
+        sender=user.name or "",
+        contact=user.email,
+        body=f"{prose_text(letter)}\n\nSincerely,\n{user.name}",
+        title="Cover letter",
+    )
+    return Response(
+        pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="cover-letter.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/jobs/{job_id}/application/send", dependencies=[Depends(rate_limit("ingest"))])
+async def send_application(
+    job_id: int, request: Request, principal: AnyPrincipal, db: Db
+) -> ApplicationOut:
+    """Gate 3 (Approve): the email goes out from the user's mailbox with its attachments."""
+    job = await _job(db, principal, job_id)
+    application = await _application(db, job)
+    try:
+        await composer.send(
+            db,
+            principal.user,
+            job,
+            application,
+            email=request.app.state.email,
+            now=datetime.now(UTC),
+        )
+    except WorkspaceError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _out(db, application, job)

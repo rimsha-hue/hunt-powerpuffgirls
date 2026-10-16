@@ -3,7 +3,16 @@ import random
 import pytest
 
 from app.domain.ats import CvDocument, Keyword, score_cv, supported_keys
-from app.domain.claims import FoundClaim, Ledger, code_claims, locate, merge, route
+from app.domain.claims import (
+    FoundClaim,
+    Ledger,
+    clause_around,
+    code_claims,
+    locate,
+    merge,
+    outside,
+    route,
+)
 from app.domain.cv import SourceLine, apply_rewrites, base_blocks, cv_document, replace_span
 from app.domain.style import style_problems
 from app.domain.taxonomy import default_taxonomy
@@ -222,3 +231,26 @@ class TestStyleAndRendering:
         pdf = render_cv(blocks, title="CV")
         assert pdf.startswith(b"%PDF")
         assert cv_document(blocks).has_tables_or_images is False
+
+
+class TestProseClaims:
+    def test_the_job_applied_for_is_not_a_claim(self) -> None:
+        text = "I am applying for the Senior Android Engineer role at M365connect."
+        found = code_claims(text, TAX, [])
+        assert {c.text for c in found} >= {"Android", "M365connect"}  # no trailing full stop
+        kept = outside(found, text, ["Senior Android Engineer", "M365connect"])
+        assert kept == []
+
+    def test_at_company_stops_before_a_pronoun(self) -> None:
+        text = "As an intern at Acme Analytics I automated ETL pipelines"
+        assert [c.text for c in code_claims(text, TAX, []) if c.type == "employer"] == [
+            "Acme Analytics"
+        ]
+
+    def test_clause_around_a_claim(self) -> None:
+        text = (
+            "I cut cost by 40% with Redis caching and prompt compression, showing a focus on cost."
+        )
+        start = text.index("prompt")
+        clause = clause_around(text, start, start + len("prompt compression"))
+        assert clause == "I cut cost by 40% with Redis caching and prompt compression"
