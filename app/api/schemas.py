@@ -19,7 +19,9 @@ class SignupIn(BaseModel):
 
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    # Login only looks the address up; validating its format here could lock out an account
+    # that exists (the seeded demo account, for example).
+    email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=200)
 
 
@@ -106,6 +108,7 @@ class EvidenceOut(BaseModel):
     source_label: str
     source_detail: str | None
     source_url: str | None
+    context: str | None
     confirmed_by: str
     confidence: float
     created_at: datetime
@@ -134,3 +137,12 @@ class GitHubIngestionOut(BaseModel):
     username: str
     repos_scanned: int
     facts: list[EvidenceOut]
+
+
+class PortfolioIngestionOut(BaseModel):
+    url: str
+    method: str  # "direct" or "rendered" (JavaScript page read through Jina Reader)
+    line_count: int
+    facts: list[EvidenceOut]
+    rejected_by_code: int
+    llm_note: str | None

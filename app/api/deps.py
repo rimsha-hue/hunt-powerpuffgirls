@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.db.models import AuthSession, User
 from app.domain.taxonomy import Taxonomy
+from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
 from app.integrations.llm import StructuredLLM
 from app.services.auth import resolve_session, tokens_match
@@ -53,11 +54,17 @@ def get_github(request: Request) -> GitHubClient:
     return client
 
 
+def get_fetcher(request: Request) -> SafeFetcher:
+    fetcher: SafeFetcher = request.app.state.fetcher
+    return fetcher
+
+
 Db = Annotated[AsyncSession, Depends(get_db)]
 AppSettings = Annotated[Settings, Depends(get_settings_dep)]
 LLM = Annotated[StructuredLLM, Depends(get_llm)]
 Tax = Annotated[Taxonomy, Depends(get_taxonomy)]
 GitHub = Annotated[GitHubClient, Depends(get_github)]
+Fetcher = Annotated[SafeFetcher, Depends(get_fetcher)]
 
 
 @dataclass

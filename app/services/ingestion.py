@@ -1,11 +1,12 @@
-"""Builds the evidence ledger from a resume and from GitHub.
+"""Builds the evidence ledger from a resume, a portfolio page and GitHub.
 
-Resume flow: sniff the file, extract text, split it into numbered lines, then combine a
-deterministic code pass with an optional LLM pass. Every LLM-proposed fact must cite a line
-that actually supports it, or it is discarded. Blocklisted values never enter the ledger.
+Document flow (resume or portfolio): extract text, split it into numbered logical lines, then
+combine a deterministic code pass with an optional LLM pass. Every LLM-proposed fact must cite a
+line that actually supports it, or it is discarded. Blocklisted values never enter the ledger.
 """
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import structlog
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ClaimBlocklist, Evidence, ResumeLine, User
 from app.domain.ledger import (
+    EvidenceSource,
     Fact,
     FactType,
     accept_proposed_facts,
@@ -25,21 +27,26 @@ from app.domain.normalize import normalize_text
 from app.domain.resume import ContactInfo, ParsedLine, extract_contact, split_resume
 from app.domain.taxonomy import Taxonomy
 from app.domain.uploads import UploadRejectedError, sniff_resume
+from app.integrations.fetch import FetchError, SafeFetcher
 from app.integrations.github import GitHubClient, RepoInfo
 from app.integrations.llm import LLMError, StructuredLLM
 from app.integrations.resume_text import extract_text_async
+from app.integrations.webtext import html_to_text, markdown_to_text
 from app.services import audit
 
 logger = structlog.get_logger()
 
 MIN_RESUME_LINES = 3
+# Below this much readable text, a page is probably rendered by JavaScript; ask Jina Reader.
+MIN_PAGE_TEXT = 300
+JINA_READER = "https://r.jina.ai/"
 
 EXTRACTION_SYSTEM = (
-    "You extract verifiable facts about a job candidate from their resume. The resume is given as "
-    "numbered lines like [L12] text. Return atomic facts only: one skill, one employer, one role, "
-    "one degree, one certification, one project or one quantified result per fact. Each fact must "
-    "cite the single line number it comes from and use wording that appears on that line. Never "
-    "infer, generalise or add anything that is not written on the cited line."
+    "You extract verifiable facts about a job candidate from a document they wrote (a resume or a "
+    "portfolio page), given as numbered lines like [L12] text. Return atomic facts only: one skill, "
+    "one employer, one role, one degree, one certification, one project or one quantified result "
+    "per fact. Each fact must cite the single line number it comes from and use wording that "
+    "appears on that line. Never infer, generalise or add anything not written on the cited line."
 )
 EXTRACTION_TASK = (
     "Extract the candidate's facts. Types: skill (a technology, tool or method), metric (a result "
@@ -78,6 +85,16 @@ class GitHubIngestion:
     evidence: list[Evidence] = field(default_factory=list)
 
 
+@dataclass
+class PortfolioIngestion:
+    url: str
+    method: Literal["direct", "rendered"]
+    line_count: int
+    evidence: list[Evidence]
+    rejected_by_code: int
+    llm_note: str | None
+
+
 async def _blocklist(db: AsyncSession, user_id: int) -> set[str]:
     rows = await db.execute(
         select(ClaimBlocklist.normalized_value).where(ClaimBlocklist.user_id == user_id)
@@ -89,8 +106,22 @@ def _numbered(lines: list[ParsedLine]) -> str:
     return "\n".join(f"[L{line.line_no}] ({line.section}) {line.text}" for line in lines)
 
 
+def _evidence(user_id: int, fact: Fact, source: EvidenceSource, source_ref: str) -> Evidence:
+    return Evidence(
+        user_id=user_id,
+        claim_text=fact.claim_text,
+        type=fact.type,
+        normalized_value=fact.normalized_value,
+        source=source,
+        source_ref=source_ref,
+        context=fact.context,
+        confirmed_by="system",
+        confidence=1.0,
+    )
+
+
 async def _llm_facts(
-    llm: StructuredLLM, lines: list[ParsedLine], taxonomy: Taxonomy
+    llm: StructuredLLM, lines: list[ParsedLine], taxonomy: Taxonomy, document: str
 ) -> tuple[list[Fact], int, str | None]:
     if not llm.configured:
         return (
@@ -103,10 +134,10 @@ async def _llm_facts(
             schema=ExtractionResult,
             system=EXTRACTION_SYSTEM,
             task=EXTRACTION_TASK,
-            data={"resume": _numbered(lines)},
+            data={document: _numbered(lines)},
         )
     except LLMError as exc:
-        logger.warning("resume_llm_extraction_failed", error_type=type(exc).__name__)
+        logger.warning("llm_extraction_failed", document=document, error_type=type(exc).__name__)
         return [], 0, f"AI extraction was skipped: {exc} Facts came from deterministic parsing."
     kept, rejected = accept_proposed_facts(
         ((f.type, f.claim_text, f.line_id) for f in result.facts),
@@ -114,6 +145,23 @@ async def _llm_facts(
         taxonomy,
     )
     return kept, rejected, None
+
+
+async def _document_facts(
+    db: AsyncSession,
+    user: User,
+    lines: list[ParsedLine],
+    llm: StructuredLLM,
+    taxonomy: Taxonomy,
+    document: str,
+) -> tuple[list[Fact], int, int, str | None]:
+    """(kept facts, rejected by code, blocked by user, llm note) for a numbered document."""
+    code_facts = extract_facts_by_code(lines, taxonomy)
+    llm_facts, rejected, llm_note = await _llm_facts(llm, lines, taxonomy, document)
+    blocked_values = await _blocklist(db, user.id)
+    facts = dedupe([*code_facts, *llm_facts])
+    kept = [f for f in facts if f.normalized_value not in blocked_values]
+    return kept, rejected, len(facts) - len(kept), llm_note
 
 
 async def ingest_resume(
@@ -135,7 +183,7 @@ async def ingest_resume(
     profile = user.profile
     version = profile.resume_version + 1
 
-    # A new resume replaces the old resume-sourced facts. User confirmations and GitHub stay.
+    # A new resume replaces the old resume-sourced facts. Confirmations, GitHub and portfolio stay.
     await db.execute(delete(ResumeLine).where(ResumeLine.user_id == user.id))
     await db.execute(
         delete(Evidence).where(Evidence.user_id == user.id, Evidence.source == "resume")
@@ -145,35 +193,20 @@ async def ingest_resume(
         ResumeLine(
             user_id=user.id,
             resume_version=version,
-            section=l.section,
-            line_no=l.line_no,
-            text=l.text,
+            section=ln.section,
+            line_no=ln.line_no,
+            text=ln.text,
         )
-        for l in lines  # noqa: E741
+        for ln in lines
     ]
     db.add_all(rows)
     await db.flush()
     row_id = {row.line_no: row.id for row in rows}
 
-    code_facts = extract_facts_by_code(lines, taxonomy)
-    llm_facts, rejected, llm_note = await _llm_facts(llm, lines, taxonomy)
-    blocked_values = await _blocklist(db, user.id)
-
-    facts = dedupe([*code_facts, *llm_facts])
-    kept = [f for f in facts if f.normalized_value not in blocked_values]
-    evidence = [
-        Evidence(
-            user_id=user.id,
-            claim_text=f.claim_text,
-            type=f.type,
-            normalized_value=f.normalized_value,
-            source="resume",
-            source_ref=str(row_id[f.line_no]),
-            confirmed_by="system",
-            confidence=1.0,
-        )
-        for f in kept
-    ]
+    kept, rejected, blocked, llm_note = await _document_facts(
+        db, user, lines, llm, taxonomy, "resume"
+    )
+    evidence = [_evidence(user.id, f, "resume", str(row_id[f.line_no])) for f in kept]
     db.add_all(evidence)
 
     contact = extract_contact(lines)
@@ -186,8 +219,11 @@ async def ingest_resume(
         profile.linkedin = contact.linkedin
     if contact.github_username and not user.github_username:
         user.github_username = contact.github_username
+    if contact.portfolio_url and not user.portfolio_url:
+        user.portfolio_url = contact.portfolio_url
 
     await db.flush()
+    llm_used = llm.configured and llm_note is None
     audit.record(
         db,
         user_id=user.id,
@@ -198,18 +234,80 @@ async def ingest_resume(
         lines=len(lines),
         facts=len(evidence),
         rejected_by_code=rejected,
-        blocked=len(facts) - len(kept),
-        llm_used=llm.configured and llm_note is None,
+        blocked=blocked,
+        llm_used=llm_used,
     )
     return ResumeIngestion(
         resume_version=version,
         line_count=len(lines),
         evidence=evidence,
         rejected_by_code=rejected,
-        blocked=len(facts) - len(kept),
-        llm_used=llm.configured and llm_note is None,
+        blocked=blocked,
+        llm_used=llm_used,
         llm_note=llm_note,
         contact=contact,
+    )
+
+
+async def fetch_page_text(
+    fetcher: SafeFetcher, url: str
+) -> tuple[str, Literal["direct", "rendered"]]:
+    """Readable text of a public page. JavaScript-rendered pages fall back to Jina Reader."""
+    page = await fetcher.fetch(url)
+    # Some hosts serve bots Markdown or plain text; both go through the Markdown cleaner.
+    text = html_to_text(page.text) if "html" in page.content_type else markdown_to_text(page.text)
+    if len(text) >= MIN_PAGE_TEXT:
+        return text, "direct"
+    try:
+        # The target was already checked as public by the direct fetch above.
+        rendered = await fetcher.fetch(f"{JINA_READER}{page.url}")
+    except FetchError:
+        if text:
+            return text, "direct"
+        raise
+    rendered_text = markdown_to_text(rendered.text)
+    if len(rendered_text) > len(text):
+        return rendered_text, "rendered"
+    return text, "direct"
+
+
+async def ingest_portfolio(
+    db: AsyncSession, user: User, fetcher: SafeFetcher, llm: StructuredLLM, taxonomy: Taxonomy
+) -> PortfolioIngestion:
+    if not user.portfolio_url:
+        raise ValueError("No portfolio URL on the profile")
+    text, method = await fetch_page_text(fetcher, user.portfolio_url)
+    lines = split_resume(text)
+
+    await db.execute(
+        delete(Evidence).where(Evidence.user_id == user.id, Evidence.source == "portfolio")
+    )
+    kept, rejected, blocked, llm_note = await _document_facts(
+        db, user, lines, llm, taxonomy, "portfolio"
+    )
+    evidence = [_evidence(user.id, f, "portfolio", user.portfolio_url) for f in kept]
+    db.add_all(evidence)
+    await db.flush()
+    audit.record(
+        db,
+        user_id=user.id,
+        actor="ledger",
+        action="portfolio_ingested",
+        entity="portfolio",
+        entity_id=None,
+        method=method,
+        lines=len(lines),
+        facts=len(evidence),
+        rejected_by_code=rejected,
+        blocked=blocked,
+    )
+    return PortfolioIngestion(
+        url=user.portfolio_url,
+        method=method,
+        line_count=len(lines),
+        evidence=evidence,
+        rejected_by_code=rejected,
+        llm_note=llm_note,
     )
 
 
@@ -252,16 +350,7 @@ async def ingest_github(
                 continue
             seen.add((fact_type, value))
             report.evidence.append(
-                Evidence(
-                    user_id=user.id,
-                    claim_text=claim_text,
-                    type=fact_type,
-                    normalized_value=value,
-                    source="github",
-                    source_ref=repo.html_url,
-                    confirmed_by="system",
-                    confidence=1.0,
-                )
+                _evidence(user.id, Fact(claim_text, fact_type, value, 0), "github", repo.html_url)
             )
     db.add_all(report.evidence)
     await db.flush()

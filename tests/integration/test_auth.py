@@ -1,6 +1,9 @@
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from tests.conftest import PASSWORD, signup
+
+PASSWORD_SECRET = SecretStr(PASSWORD)
 
 
 class TestSignupAndLogin:
@@ -48,6 +51,25 @@ class TestSignupAndLogin:
         )
         assert right.status_code == 200
         assert client.get("/api/auth/me").status_code == 200
+
+    def test_seeded_accounts_on_reserved_domains_can_log_in(self, settings) -> None:  # type: ignore[no-untyped-def]
+        import asyncio
+        import sys
+
+        from app.main import create_app
+        from app.seed import seed
+
+        demo = settings.model_copy(
+            update={"demo_user_email": "judge@demo.test", "demo_user_password": PASSWORD_SECRET}
+        )
+        loop_factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
+        assert asyncio.run(seed(demo), loop_factory=loop_factory) == "demo user created"
+        with TestClient(create_app(demo)) as client:
+            response = client.post(
+                "/api/auth/login", json={"email": "judge@demo.test", "password": PASSWORD}
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["is_demo"] is True
 
     def test_login_is_rate_limited(self, client: TestClient) -> None:
         statuses = [

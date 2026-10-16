@@ -43,6 +43,100 @@ def _line_no(lines, needle: str) -> int:  # type: ignore[no-untyped-def]
     return next(line.line_no for line in lines if needle in line.text)
 
 
+PROJECTS = """PROJECTS
+MediScan: AI Medicine Scanner for Pakistani Patients [link]
+• Integrated Google Gemini 2.0 Flash with a pharmacist persona; 94% JSON parse success rate, 100% persona compliance, 20 screens on a zero-cost stack.
+• Cross-platform Flutter app achieving 88% medicine identification accuracy
+EXPERIENCE
+AI Intern
+AIO June – August 2026
+• Led 5 engineers across 3 codebases
+CERTIFICATIONS
+AWS Certified Cloud Practitioner, Amazon Web Services, 2024
+"""
+
+
+class TestEntryAwareExtraction:
+    @pytest.fixture(scope="class")
+    def facts(self, tax):  # type: ignore[no-untyped-def]
+        return extract_facts_by_code(split_resume(PROJECTS), tax)
+
+    def test_one_metric_per_clause_with_its_entry(self, facts) -> None:  # type: ignore[no-untyped-def]
+        metrics = {f.normalized_value: f for f in facts if f.type == "metric"}
+        assert metrics["94%"].claim_text == "94% JSON parse success rate"
+        assert metrics["100%"].claim_text == "100% persona compliance"
+        assert metrics["20 screen"].claim_text == "20 screens on a zero-cost stack"
+        mediscan = "MediScan: AI Medicine Scanner for Pakistani Patients"
+        assert {metrics[k].context for k in ("94%", "100%", "20 screen", "88%")} == {mediscan}
+
+    def test_experience_context_joins_role_and_company_without_dates(self, facts) -> None:  # type: ignore[no-untyped-def]
+        led = next(f for f in facts if f.type == "metric" and "engineer" in f.normalized_value)
+        assert led.normalized_value == "3 codebase|5 engineer"
+        assert led.context == "AI Intern · AIO"
+
+    def test_version_numbers_are_not_metrics(self, facts) -> None:  # type: ignore[no-untyped-def]
+        assert not any(
+            "flash" in f.normalized_value or "2 " in f.normalized_value
+            for f in facts
+            if f.type == "metric"
+        )
+
+    def test_numbers_inside_names_are_not_metrics(self, tax) -> None:  # type: ignore[no-untyped-def]
+        lines = split_resume(
+            "PROJECTS\n• Swin Transformer + mBART-50 + LLM post-correction for 3 scripts\n"
+        )
+        metrics = [
+            f.normalized_value for f in extract_facts_by_code(lines, tax) if f.type == "metric"
+        ]
+        assert metrics == ["3 script"]
+
+    def test_certifications_section_lines_are_certifications(self, facts) -> None:  # type: ignore[no-untyped-def]
+        certs = [f.claim_text for f in facts if f.type == "certification"]
+        assert certs == ["AWS Certified Cloud Practitioner, Amazon Web Services"]
+
+    def test_label_lines_do_not_replace_the_entry_title(self, tax) -> None:  # type: ignore[no-untyped-def]
+        lines = split_resume(
+            "PROJECTS\nTALASH Recruitment System\nKey Contributions:\n• Scored 341 test cases\n"
+        )
+        (metric,) = [f for f in extract_facts_by_code(lines, tax) if f.type == "metric"]
+        assert metric.context == "TALASH Recruitment System"
+
+
+class TestDegreeEvidence:
+    """A degree mentioned outside Education is not evidence that the person holds it."""
+
+    def test_code_ignores_degrees_outside_education(self, tax) -> None:  # type: ignore[no-untyped-def]
+        lines = split_resume(
+            "SUMMARY\nI plan to pursue a PhD in Physics.\nEDUCATION\nBS Data Science, NUST\n"
+        )
+        degrees = [
+            f.normalized_value for f in extract_facts_by_code(lines, tax) if f.type == "degree"
+        ]
+        assert degrees == ["bachelor|data science"]
+
+    @pytest.mark.parametrize(
+        ("line", "held"),
+        [
+            ("BS Data Science, NUST, 2019 - 2023", True),
+            ("Pursuing BS Data Science (Sep 2023 - Present)", True),
+            ("Later I plan to pursue a PhD in Robotics", False),
+            ("Applying for an MS in Artificial Intelligence next year", False),
+            ("I hope to do a Master's in Statistics", False),
+        ],
+    )
+    def test_future_degrees_in_education_are_not_held(self, tax, line: str, held: bool) -> None:  # type: ignore[no-untyped-def]
+        lines = split_resume(f"EDUCATION\n{line}\n")
+        degrees = [f for f in extract_facts_by_code(lines, tax) if f.type == "degree"]
+        assert bool(degrees) is held
+
+    def test_llm_cannot_launder_a_mentioned_phd(self, tax) -> None:  # type: ignore[no-untyped-def]
+        lines = split_resume("SUMMARY\nI plan to pursue a PhD in Physics.\n")
+        kept, rejected = accept_proposed_facts(
+            [("degree", "PhD in Physics", 2)], {ln.line_no: ln for ln in lines}, tax
+        )
+        assert (kept, rejected) == ([], 1)
+
+
 class TestCodeExtraction:
     def test_extracts_skills_degrees_and_metrics_with_their_lines(self, lines, tax) -> None:  # type: ignore[no-untyped-def]
         facts = extract_facts_by_code(lines, tax)

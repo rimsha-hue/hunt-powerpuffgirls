@@ -12,6 +12,7 @@ import {
   json,
   type Evidence,
   type GitHubIngestion,
+  type PortfolioIngestion,
   type Profile,
   type ResumeIngestion,
 } from '../lib/api'
@@ -123,24 +124,42 @@ function GitHubStep({ profile, onFacts }: { profile: Profile; onFacts: (facts: E
   const qc = useQueryClient()
   const toast = useToast()
 
+  const [problems, setProblems] = useState<string[]>([])
+
   const sync = useMutation({
     mutationFn: async () => {
       await api<Profile>('/api/profile', {
         method: 'PUT',
         body: json({ github_username: username.trim() || null, portfolio_url: portfolio.trim() || null }),
       })
-      if (!username.trim()) return null
-      return api<GitHubIngestion>('/api/github/sync', { method: 'POST' })
+      // Independent sources: one failing must not hide what the other proved.
+      const [github, site] = await Promise.allSettled([
+        username.trim() ? api<GitHubIngestion>('/api/github/sync', { method: 'POST' }) : Promise.resolve(null),
+        portfolio.trim() ? api<PortfolioIngestion>('/api/portfolio/sync', { method: 'POST' }) : Promise.resolve(null),
+      ])
+      return { github, site }
     },
-    onSuccess: (result) => {
+    onSuccess: ({ github, site }) => {
       void qc.invalidateQueries({ queryKey: ['profile'] })
       void qc.invalidateQueries({ queryKey: ['ledger'] })
-      if (result) {
-        onFacts(result.facts)
-        toast(`Scanned ${result.repos_scanned} repos: ${result.facts.length} new facts from GitHub.`)
-      } else {
-        toast('Saved.')
+      const found: Evidence[] = []
+      const notes: string[] = []
+      const errors: string[] = []
+      if (github.status === 'fulfilled' && github.value) {
+        found.push(...github.value.facts)
+        notes.push(`${github.value.facts.length} new from ${github.value.repos_scanned} repos`)
+      } else if (github.status === 'rejected') {
+        errors.push(`GitHub: ${github.reason instanceof Error ? github.reason.message : 'failed'}`)
       }
+      if (site.status === 'fulfilled' && site.value) {
+        found.push(...site.value.facts)
+        notes.push(`${site.value.facts.length} from your portfolio`)
+      } else if (site.status === 'rejected') {
+        errors.push(`Portfolio: ${site.reason instanceof Error ? site.reason.message : 'failed'}`)
+      }
+      setProblems(errors)
+      if (found.length) onFacts(found)
+      toast(notes.length ? `Facts proven: ${notes.join(', ')}.` : errors.length ? 'Saved, with problems below.' : 'Saved.')
     },
   })
 
@@ -165,18 +184,22 @@ function GitHubStep({ profile, onFacts }: { profile: Profile; onFacts: (facts: E
           value={portfolio}
           onChange={(e) => setPortfolio(e.target.value)}
           placeholder="https://"
+          hint="Read safely on the server. Pages built with JavaScript are rendered first."
           maxLength={500}
         />
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button onClick={() => sync.mutate()} disabled={sync.isPending}>
           <FolderGit2 className="size-4" aria-hidden />
-          {sync.isPending ? 'Reading repos…' : username.trim() ? 'Save and scan repos' : 'Save'}
+          {sync.isPending ? 'Reading your work…' : username.trim() || portfolio.trim() ? 'Save and scan' : 'Save'}
         </Button>
       </div>
-      {sync.error && (
-        <div className="mt-3">
-          <ErrorNote>{sync.error.message}</ErrorNote>
+      {(sync.error || problems.length > 0) && (
+        <div className="mt-3 flex flex-col gap-2">
+          {sync.error && <ErrorNote>{sync.error.message}</ErrorNote>}
+          {problems.map((problem) => (
+            <ErrorNote key={problem}>{problem}</ErrorNote>
+          ))}
         </div>
       )}
     </Panel>
@@ -291,7 +314,8 @@ export default function Onboarding() {
       <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,26rem)]">
         <div className="flex flex-col gap-6">
           <ResumeStep onFacts={onResume} done={data.resume_version > 0} />
-          <GitHubStep profile={data} onFacts={(facts) => setFresh([...facts, ...live])} />
+          {/* Remount after a resume upload so links found in the resume header pre-fill the fields. */}
+          <GitHubStep key={data.resume_version} profile={data} onFacts={(facts) => setFresh([...facts, ...live])} />
           <TargetsStep key={data.resume_version} profile={data} />
           <Link
             to="/ledger"

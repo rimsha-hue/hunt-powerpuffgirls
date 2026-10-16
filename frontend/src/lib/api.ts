@@ -105,6 +105,7 @@ export interface Evidence {
   source_label: string
   source_detail: string | null
   source_url: string | null
+  context: string | null
   confirmed_by: 'system' | 'user'
   confidence: number
   created_at: string
@@ -124,4 +125,48 @@ export interface GitHubIngestion {
   username: string
   repos_scanned: number
   facts: Evidence[]
+}
+
+export interface PortfolioIngestion {
+  url: string
+  method: 'direct' | 'rendered'
+  line_count: number
+  facts: Evidence[]
+  rejected_by_code: number
+  llm_note: string | null
+}
+
+/** One fact as the user thinks of it: the same claim, possibly proven by several sources. */
+export interface FactGroup {
+  key: string
+  type: FactType
+  claim_text: string
+  context: string | null
+  confirmed_by_user: boolean
+  created_at: string
+  sources: Evidence[]
+}
+
+export function groupFacts(rows: Evidence[]): FactGroup[] {
+  const groups = new Map<string, FactGroup>()
+  for (const row of rows) {
+    const key = `${row.type}|${row.normalized_value}`
+    const group = groups.get(key)
+    if (group) {
+      group.sources.push(row)
+      group.context ??= row.context
+      group.confirmed_by_user ||= row.confirmed_by === 'user'
+    } else {
+      groups.set(key, {
+        key,
+        type: row.type,
+        claim_text: row.claim_text,
+        context: row.context,
+        confirmed_by_user: row.confirmed_by === 'user',
+        created_at: row.created_at,
+        sources: [row],
+      })
+    }
+  }
+  return [...groups.values()]
 }
