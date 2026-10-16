@@ -1,0 +1,13 @@
+{
+  "resume": "fixtures/demo_resume.docx",
+  "proposed_facts": [
+    {"type": "employer", "text": "Nimbus Labs (Pvt.) Ltd.", "line": 7},
+    {"type": "role", "text": "Machine Learning Engineer", "line": 7},
+    {"type": "employer", "text": "Acme Analytics", "line": 11},
+    {"type": "role", "text": "Software Engineer Intern", "line": 11},
+    {"type": "project", "text": "ResumeRadar", "line": 15},
+    {"type": "project", "text": "UrduSentiment", "line": 16},
+    {"type": "employer", "text": "National University of Sciences and Technology", "line": 18},
+    {"type": "employer", "text": "NUST", "line": 18}
+  ]
+}

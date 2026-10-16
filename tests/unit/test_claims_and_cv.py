@@ -122,11 +122,22 @@ class TestCodePass:
             c for c in code_claims("Fine-tuned GPT-4 models", TAX, []) if c.type == "metric"
         ]
 
-    def test_code_claims_win_overlaps(self) -> None:
+    def test_an_llm_claim_the_code_claims_cover_is_dropped(self) -> None:
         code = FoundClaim("40%", "metric", 10, 13, "code")
-        llm = FoundClaim("cut cost by 40%", "metric", 2, 13, "llm")
+        same = FoundClaim("40%", "metric", 10, 13, "llm")
         other = FoundClaim("Redis", "skill", 20, 25, "llm")
-        assert merge([llm, code, other]) == [code, other]
+        assert merge([same, code, other]) == [code, other]
+
+    def test_an_llm_claim_that_says_more_is_kept_beside_the_code_claim(self) -> None:
+        text = "Senior backend and AI engineer"
+        code = next(c for c in code_claims(text, TAX, []) if c.text == "AI")
+        role = FoundClaim(text, "role", 0, len(text), "llm")
+        assert merge([code, role]) == [role, code]
+
+    def test_overlapping_llm_claims_keep_the_earlier(self) -> None:
+        first = FoundClaim("Led a team", "role", 0, 10, "llm")
+        second = FoundClaim("team of engineers", "role", 6, 23, "llm")
+        assert merge([second, first]) == [first]
 
 
 class TestRouting:
@@ -170,6 +181,26 @@ class TestRouting:
             _route(text, _claim("Used vector quantization", "vector quantization", "skill"), line)
             == "needs_you"
         )
+
+    def test_a_title_the_line_lacks_needs_you(self) -> None:
+        for quote, kind in [("As tech lead", "role"), ("Google Developer Expert", "certification")]:
+            text = f"{quote}, reduced LLM inference cost by 40% with Redis caching"
+            assert _route(text, _claim(text, quote, kind), self.LINE, sim=0.97) == "needs_you"
+
+    def test_a_title_the_line_states_is_inferred(self) -> None:
+        line = "Backend and AI engineer who builds reliable Python services"
+        text = "AI and backend engineer who builds Python services"
+        claim = _claim(text, "AI and backend engineer", "role")
+        assert _route(text, claim, line, sim=0.9) == "inferred"
+
+    def test_ledger_proven_skills_ground_a_paraphrase(self) -> None:
+        line = "Shipped FastAPI services on Kubernetes"
+        text = "Shipped Docker FastAPI services"
+        claim = _claim(text, "Shipped Docker FastAPI services", "project")
+        assert _route(text, claim, line, sim=0.9) == "inferred"  # Docker is in the ledger
+        text = "Shipped Terraform FastAPI services"
+        claim = _claim(text, "Shipped Terraform FastAPI services", "project")
+        assert _route(text, claim, line, sim=0.9) == "needs_you"
 
     def test_blocklisted_values_are_blocked(self) -> None:
         ledger = Ledger.build([], blocklist=["45%"])

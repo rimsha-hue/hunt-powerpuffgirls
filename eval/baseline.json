@@ -1,0 +1,6 @@
+{
+  "threshold": 0.85,
+  "similarity": "embedding",
+  "catch_rate": 0.925,
+  "false_alarm_rate": 0.0417
+}

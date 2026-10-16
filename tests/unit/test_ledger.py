@@ -147,7 +147,7 @@ class TestCodeExtraction:
         assert ("skill", "apache airflow") in by_key
         assert ("degree", "bachelor|computer science") in by_key
         assert ("metric", "30%") in by_key
-        assert ("metric", "2000000 record") in by_key
+        assert ("metric", "2000000 record/day") in by_key
         assert ("metric", "3.6 gpa/4") in by_key
 
         latency = by_key[("metric", "30%")]

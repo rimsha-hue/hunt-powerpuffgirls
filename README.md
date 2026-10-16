@@ -18,8 +18,12 @@ It finds jobs, scores the fit, tailors your CV and prepares each application, an
 |---|---|---|
 | 0 | FastAPI skeleton, Dockerfile, CI, `/health` | Done (deploy blocked by the platform's builder) |
 | 1 | Auth (email + Google), demo seed, resume/portfolio/GitHub evidence ledger, Onboarding and Ledger screens, input guardrails | Done |
-| 2 | Scout, ATS score, Jobs screen, digest email with signed Apply links | Next |
-| 3 to 7 | Tailor and Verifier, email flow, form flow, Coach, eval | Not started |
+| 2 | Scout, ATS score, Jobs screen, digest email with signed Apply links | Done |
+| 3 | Tailor, Verifier (Verified, Inferred, Needs you), Needs-you gate, learning loop, CV PDF | Done |
+| 4 | Email apply flow: attachments, humanized email, send after approval | Done |
+| 5 | Form apply flow: Greenhouse questions, company research, Apply Pack | Done |
+| 6 | Coach and growth plans | Not started |
+| 7 | Claim checker eval (numbers below), malicious job description test, CI baseline | Done; MCP server not built |
 
 ## Run locally
 
@@ -60,10 +64,11 @@ Stop with `Ctrl+C`, or `docker compose down`.
 ### Checks (the same as CI)
 
 ```powershell
-.\.venv\Scripts\ruff format app tests scripts
-.\.venv\Scripts\ruff check app tests scripts
-.\.venv\Scripts\mypy app
+.\.venv\Scripts\ruff format app tests eval scripts
+.\.venv\Scripts\ruff check app tests eval scripts
+.\.venv\Scripts\mypy app eval
 .\.venv\Scripts\pytest -q --timeout=60      # offline: temporary SQLite databases, fakes for every external API
+.\.venv\Scripts\python -m eval.run --check  # claim checker eval against eval/baseline.json
 cd frontend; npx oxlint; npm run build
 ```
 
@@ -106,7 +111,7 @@ Migrations run automatically at container start (`alembic upgrade head`). To cre
 ```powershell
 $env:DATABASE_URL="sqlite+aiosqlite:///./scratch.db"
 .\.venv\Scripts\alembic upgrade head
-.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0009
+.\.venv\Scripts\alembic revision --autogenerate -m "describe the change" --rev-id 0010
 Remove-Item scratch.db; Remove-Item Env:DATABASE_URL
 ```
 
@@ -139,3 +144,48 @@ Review the generated file before committing (name constraints, handle existing d
 3. **LLM pass:** the model proposes employers, roles, certifications and projects, each citing a line. Untrusted text reaches it only inside delimited data blocks.
 4. **Code decides:** a proposal is kept only if the cited line exists and contains its key tokens and every number it states.
 5. The portfolio (fetched through an SSRF-safe fetcher) and GitHub repos add more evidence. A fact backed by several sources shows every source.
+
+## Claim checker eval
+
+Does the Verifier catch invented claims without flagging true ones? `python -m eval.run` answers
+with numbers (`--show-misses` lists every miss and false alarm).
+
+- **Cases** (`eval/claims.jsonl`): 112 tailored CV bullets, each citing a line of the demo resume.
+  72 are true (7 verbatim, 56 paraphrased, 9 adding a skill the ledger proves) and 40 are planted
+  fabrications in seven kinds: inflated numbers, fake degrees, fake employers, skills the user
+  doesn't have, added seniority, claims injected by a job description, and meaning drift (a real
+  number attached to a different outcome).
+- **Ledger:** built from the demo resume exactly as ingestion builds it (code pass plus the LLM's
+  proposed employers, roles and projects, each accepted only if its line supports it).
+- **What runs:** the real Verifier, with the bge-small embedding model. The LLM claim pass is
+  replayed from the claims recorded with each case, so the run is deterministic and needs no key.
+- **Scoring:** a fabrication counts as caught only if a claim overlapping its planted words is
+  routed Needs you. A true case is a false alarm if any of its claims is.
+- **Tuning:** `INFER_THRESHOLD` was swept from 0.50 to 0.95 on one half of the cases (alternating
+  within each label) and reported on the other half. The tuned value, **0.85**, is the default.
+
+| Run | Catch rate (fabrications flagged) | False alarm rate (true claims flagged) |
+|---|---|---|
+| Held-out half, threshold 0.85 | **95.0%** (19/20) | **2.8%** (1/36) |
+| All 112 cases, threshold 0.85 (CI baseline) | 92.5% (37/40) | 4.2% (3/72) |
+
+Every inflated number, fake degree, fake employer, unheld skill, added seniority and injected claim
+is caught (32/32). The misses are meaning drift: "Reduced LLM inference **latency** by 40%" when
+the resume says cost. The number and the skills are proven and the sentence is nearly identical,
+so neither code nor similarity can tell. That is the known limit of this design.
+
+The first run found four Verifier defects, which were fixed before tuning (catch rate 87.5% to
+100% and false alarms 4.6% to 0% on the 97 cases that existed then; the meaning-drift cases were
+added afterwards):
+1. An LLM claim was dropped whenever a code claim overlapped it, so "**Senior** backend and AI
+   engineer" disappeared behind the skill "AI".
+2. Roles and certifications counted as grounded when their words weren't on the source line
+   ("As tech lead", "Google Developer Expert").
+3. A count's unit was the first word after it, so "1,200 support agents" and "1,200 agents" never
+   matched. Units are now the head noun plus any rate ("2M records daily" vs "per second"), and
+   "tripled" reads as 3x.
+4. "fine-tuned" wasn't a synonym of the skill Fine-Tuning.
+
+CI runs `python -m eval.run --check`, which fails if the shipped threshold's catch rate falls or
+its false alarm rate rises against `eval/baseline.json`. A malicious job description
+(`fixtures/malicious_job.json`) is tested end to end in `tests/integration/test_malicious_job.py`.

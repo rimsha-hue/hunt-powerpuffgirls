@@ -40,6 +40,32 @@ class TestQuantities:
         years = find_quantities("since 2019", include_years=True)
         assert [q.unit for q in years] == ["year-date"]
 
+    @pytest.mark.parametrize(
+        ("a", "b"),
+        [
+            ("used by 1,200 support agents", "used by 1,200 agents"),
+            ("processing 2M records daily", "processing 2M daily records"),
+            ("shipped 30 FastAPI microservices", "shipped 30 microservices"),
+        ],
+    )
+    def test_modifiers_before_the_noun_do_not_change_the_unit(self, a: str, b: str) -> None:
+        assert quantity_keys(a) == quantity_keys(b)
+
+    def test_a_rate_is_part_of_the_unit(self) -> None:
+        daily = quantity_keys("processing 2M records daily")
+        assert daily == {"2000000 record/day"}
+        assert quantity_keys("2M daily records") == daily
+        assert quantity_keys("2M records a day") == daily
+        assert quantity_keys("2M records per second") == {"2000000 record/second"}
+
+    def test_word_multipliers_are_numbers(self) -> None:
+        assert quantity_keys("Tripled dashboard query speed") == quantity_keys("3x faster")
+        assert quantity_keys("doubled throughput") == {"2x"}
+
+    def test_the_noun_phrase_ends_at_a_stopword(self) -> None:
+        assert quantity_keys("10 years of Kubernetes experience") == {"10 year"}
+        assert quantity_keys("1,200 agents across 5 countries") == {"1200 agent", "5 country"}
+
     def test_every_number_is_found(self) -> None:
         text = "Cut p95 latency 40% for 2 services serving 1.5M requests"
         keys = quantity_keys(text)

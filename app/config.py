@@ -130,7 +130,8 @@ class Settings(BaseSettings):
 
     # --- Verifier (Phase 3) ---
     # A rewritten line at least this similar to its source line may be Inferred (spec section 5).
-    infer_threshold: float = Field(default=0.78, ge=0.0, le=1.0)
+    # 0.85 is tuned by the claim eval (`python -m eval.run`, see README "Claim checker eval").
+    infer_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     # Embeddings for that similarity (fastembed, CPU). Off: a lexical similarity, which scores
     # lower and so asks the user more often.
     embeddings_enabled: bool = True

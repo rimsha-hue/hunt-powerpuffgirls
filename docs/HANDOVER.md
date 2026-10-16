@@ -12,8 +12,8 @@ Read with `CLAUDE.md` (how to work here), `ARCHITECTURE.md` (code map) and `SPEC
 | 3 | Tailor, Verifier (three-way routing), Needs-you panel, learning loop, ATS after, CV PDF | **Done.** Verified live with Groq + bge-small: 7 bullets rewritten, 26 claims checked automatically, 1 sent to the user. |
 | 4 | Email apply flow (attachments, humanized email, SMTP send) | **Done.** Verified live: Groq draft, one invented claim flagged, sent through Gmail with the CV attached, job Applied, follow-up in 7 days. |
 | 5 | Form apply flow (Greenhouse, generic forms, Researcher, Apply Pack) | **Done.** Verified live on Anthropic's Greenhouse job 5186067008: 24 questions typed, profile and ledger answers sourced, two written answers citing a Tavily fact with its URL, consent left to the user. |
-| 6 | Coach and growth plans with GitHub verification; Activity screen | Not started |
-| 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | **Next** (cut line). Demo mode for jobs exists since Phase 2. |
+| 6 | Coach and growth plans with GitHub verification; Activity screen | **Next.** Not started |
+| 7 | Claim eval (`eval/claims.jsonl`, `python -m eval.run`), malicious JD test, demo mode, MCP | **Eval done:** 112 cases, held-out catch rate 95.0% and false alarms 2.8% at the tuned `INFER_THRESHOLD` 0.85; CI baseline; malicious JD test. Demo mode for jobs since Phase 2. MCP not built. |
 
 Cut line if time runs short: phases 0 to 4 and the eval first (spec section 19).
 
@@ -152,6 +152,26 @@ every email to one inbox), and set `INTERNAL_TOKEN` if a cron will call `/intern
   company fact link, edit/answer with "remember", approve), Apply Pack page (copy buttons, CV
   and cover letter downloads, Open application form, I submitted it), "Add job" by link on Jobs.
 
+## 5e. Phase 7: what was built
+
+- `eval/`: `claims.jsonl` (72 true, 40 fabricated in seven kinds), `ledger.json` (the LLM's
+  proposed demo facts), `run.py` (real `verify()` with bge-small, LLM claim pass replayed,
+  threshold sweep on one half, report on the other), `baseline.json` (CI gate).
+- Verifier fixes the eval found: overlapping LLM claims kept (`claims.merge`); roles,
+  certifications and degrees need their words on the line, while skills and degrees the ledger
+  proves ground a paraphrase (`claims._grounded`); count units are head noun plus rate, word
+  multipliers ("tripled") are numbers (`normalize.find_quantities`, migration 0009 recomputes
+  stored metrics); "fine-tuned" is a Fine-Tuning synonym.
+- Gate 2 with overlapping claims: editing or removing part of a statement sends the claim around
+  it back to Needs you (`verifier._relocate`); blocked spans are cut as merged ranges. The
+  Workspace shows a Needs-you claim (then the longer one) where claims overlap.
+- `INFER_THRESHOLD` default 0.78 to 0.85 (tuned).
+- `fixtures/malicious_job.json` + `tests/integration/test_malicious_job.py`: a model obeying the
+  injection still can't ship a claim, raise the ATS score or send anything.
+- Known: meaning drift (a proven number attached to another outcome) passes; an apply email
+  injected into a job description is taken as the recipient, so Gate 3's visible, editable To
+  field is the protection.
+
 ## 6. Useful snippets
 
 LLM probe (prints model, OK or error type; never the key):
@@ -196,6 +216,8 @@ Check which `.env` keys are set without printing values:
 | Match score smoothed toward 50% by a prior of weight 2 | Short postings naming one skill scored 100; the ATS formula stays exactly as specified |
 | Company-fact and question claims excluded only by clause overlap, a copied distinctive phrase without first person, or a clause naming the company | A blunt word match would hide real claims ("I built AI systems") and let the model pin company numbers on the user |
 | Prose verified sentence by sentence against the closest resume line | Emails and letters have no one-to-one source line; this also checks the user's own edits |
+| Eval replays the LLM claim pass from recorded claims | Deterministic, keyless CI gate; measures the code routing and embeddings, which decide the bucket |
+| `INFER_THRESHOLD` 0.85 (tuned), ties go to the higher threshold | The tuned value; leaning toward asking the user fits the human-in-the-loop rule |
 | fpdf2 for the CV PDF instead of WeasyPrint | Pure Python: same output in Docker, CI and on Windows; text-only one-column layout is ATS-safe |
 | Gates as statuses and API calls instead of LangGraph interrupts | Each gate already persists in Postgres; LangGraph added weight without a new capability under the deadline |
 | Tailor rewrites one source line per bullet, within its entry | Merging or moving lines could attach a result to the wrong job |
