@@ -26,6 +26,7 @@ from app.domain.normalize import (
     find_schools,
     normalize_org,
     normalize_text,
+    org_names,
 )
 from app.domain.taxonomy import Taxonomy
 
@@ -95,7 +96,13 @@ class Ledger:
             if row.entry:
                 entries.setdefault((row.type, row.value), set()).add(row.entry)
             if row.type in ORG_TYPES and row.text.strip():
-                names.setdefault(row.type, set()).add(row.text.strip())
+                # "Name (ACR)": both names find and prove the same organisation.
+                for name in org_names(row.text):
+                    names.setdefault(row.type, set()).add(name)
+                    alias = normalize_org(name)
+                    values.setdefault(row.type, set()).add(alias)
+                    if row.entry:
+                        entries.setdefault((row.type, alias), set()).add(row.entry)
         return cls(
             {k: frozenset(v) for k, v in values.items()},
             frozenset(metric_keys),

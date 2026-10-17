@@ -3,7 +3,15 @@ import { Search, Trash2 } from 'lucide-react'
 import { useDeferredValue, useState } from 'react'
 import { Link } from 'react-router'
 import { ErrorNote, FilterChips, Skeleton, SourceBadge, TypeTag } from '../components/ui'
-import { api, groupFacts, type Evidence, type FactGroup, type FactSource, type FactType } from '../lib/api'
+import {
+  api,
+  groupFacts,
+  uniqueSources,
+  type Evidence,
+  type FactGroup,
+  type FactSource,
+  type FactType,
+} from '../lib/api'
 import { useToast } from '../lib/toast'
 
 const TYPES: Array<FactType | 'all'> = [
@@ -66,7 +74,7 @@ function FactRow({ group, onDelete }: { group: FactGroup; onDelete: (group: Fact
       </td>
       <td className="sm:px-4 sm:py-3">
         <span className="flex flex-wrap gap-1.5">
-          {group.sources.map((s) => (
+          {uniqueSources(group).map((s) => (
             <SourceBadge key={s.id} fact={s} />
           ))}
         </span>
@@ -134,7 +142,7 @@ function SkillChips({ groups, onDelete }: { groups: FactGroup[]; onDelete: (grou
         >
           {g.claim_text}
           <span className="flex gap-1">
-            {g.sources.map((s) => (
+            {uniqueSources(g).map((s) => (
               <SourceBadge key={s.id} fact={s} />
             ))}
           </span>

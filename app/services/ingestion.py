@@ -7,7 +7,7 @@ line that actually supports it, or it is discarded. Blocklisted values never ent
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 import structlog
 from pydantic import BaseModel, Field
@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ClaimBlocklist, Evidence, ResumeLine, User
 from app.domain.contact import normalize_linkedin, normalize_person_name, normalize_phone
 from app.domain.ledger import (
+    FACT_TYPES,
+    MAX_CLAIM_LENGTH,
     EvidenceSource,
     Fact,
     FactType,
@@ -40,6 +42,8 @@ from app.services import audit
 logger = structlog.get_logger()
 
 MIN_RESUME_LINES = 3
+# More than this from one document is a runaway answer; the rest are ignored.
+MAX_PROPOSED_FACTS = 200
 # Below this much readable text, a page is probably rendered by JavaScript; ask Jina Reader.
 MIN_PAGE_TEXT = 300
 
@@ -82,13 +86,15 @@ EXTRACTION_TASK = (
 
 
 class ProposedFact(BaseModel):
-    claim_text: str = Field(min_length=1, max_length=300)
-    type: FactType
-    line_id: int = Field(ge=1)
+    # Checked item by item in code (_llm_facts): one unknown type or overlong quote is one
+    # rejected fact, not a failed extraction.
+    claim_text: str
+    type: str
+    line_id: int
 
 
 class ExtractionResult(BaseModel):
-    facts: list[ProposedFact] = Field(default_factory=list, max_length=200)
+    facts: list[ProposedFact] = Field(default_factory=list)
 
 
 @dataclass
@@ -164,12 +170,14 @@ async def _llm_facts(
     except LLMError as exc:
         logger.warning("llm_extraction_failed", document=document, error_type=type(exc).__name__)
         return [], 0, f"AI extraction was skipped: {exc} Facts came from deterministic parsing."
-    kept, rejected = accept_proposed_facts(
-        ((f.type, f.claim_text, f.line_id) for f in result.facts),
-        {line.line_no: line for line in lines},
-        taxonomy,
-    )
-    return kept, rejected, None
+    proposals = result.facts[:MAX_PROPOSED_FACTS]
+    usable = [
+        (cast(FactType, f.type), f.claim_text, f.line_id)
+        for f in proposals
+        if f.type in FACT_TYPES and 0 < len(f.claim_text) <= MAX_CLAIM_LENGTH
+    ]
+    kept, rejected = accept_proposed_facts(usable, {line.line_no: line for line in lines}, taxonomy)
+    return kept, rejected + len(proposals) - len(usable), None
 
 
 async def _document_facts(
@@ -181,7 +189,7 @@ async def _document_facts(
     document: str,
 ) -> tuple[list[Fact], int, int, str | None]:
     """(kept facts, rejected by code, blocked by user, llm note) for a numbered document."""
-    code_facts = extract_facts_by_code(lines, taxonomy)
+    code_facts = extract_facts_by_code(lines, taxonomy, titled_sections=document == "resume")
     llm_facts, rejected, llm_note = await _llm_facts(llm, lines, taxonomy, document)
     blocked_values = await _blocklist(db, user.id)
     # The same fact worded differently (here or in another source) becomes one ledger fact.

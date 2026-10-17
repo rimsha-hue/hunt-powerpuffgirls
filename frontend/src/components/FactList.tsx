@@ -1,5 +1,5 @@
 import { motion } from 'motion/react'
-import { groupFacts, type Evidence } from '../lib/api'
+import { contextNote, groupFacts, uniqueSources, type Evidence } from '../lib/api'
 import { useCalm } from '../lib/calm'
 import { SourceBadge, TypeTag } from './ui'
 
@@ -22,16 +22,22 @@ export function FactList({ facts }: { facts: Evidence[] }) {
           initial={calm ? false : { opacity: 0, x: -12 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: index * step, duration: 0.18 }}
-          className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-ink bg-white px-3 py-2"
+          className="flex flex-col gap-1.5 rounded-lg border-2 border-ink bg-white px-3 py-2"
         >
-          <TypeTag type={group.type} />
-          <span className="min-w-0 flex-1 text-sm font-semibold break-words">
-            {group.claim_text}
-            {group.context && <span className="block font-mono text-[11px] font-medium text-ink/70">in {group.context}</span>}
-          </span>
-          {group.sources.map((source) => (
-            <SourceBadge key={source.id} fact={source} />
-          ))}
+          <div className="flex items-start gap-2">
+            <TypeTag type={group.type} />
+            <span className="min-w-0 flex-1 text-sm font-semibold [overflow-wrap:break-word]">
+              {group.claim_text}
+              {contextNote(group) && (
+                <span className="block text-xs font-medium text-ink/70">in {contextNote(group)}</span>
+              )}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {uniqueSources(group).map((source) => (
+              <SourceBadge key={source.id} fact={source} />
+            ))}
+          </div>
         </motion.li>
       ))}
     </ul>

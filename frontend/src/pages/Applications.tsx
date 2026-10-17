@@ -102,10 +102,10 @@ export default function Applications() {
   return (
     <div className="flex flex-col gap-6">
       <section className="panel hearts p-6">
-        <h1 className="font-display text-5xl tracking-wide">Applications</h1>
+        <h1 className="font-display text-5xl tracking-wide">Tailor and apply</h1>
         <p className="mt-1 max-w-2xl font-semibold">
-          Every job you picked, from the Tailor to the reply. Applied on an employer's site yourself? Mark it on the
-          job's page and track it here too.
+          Every job you picked: open the Tailor to work on its CV, send it, then track the reply. Applied on an
+          employer's site yourself? Mark it on the job's page and track it here too.
         </p>
         {rows.length > 0 && (
           <p className="mt-3 flex flex-wrap gap-2">

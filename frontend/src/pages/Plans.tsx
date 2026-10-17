@@ -351,6 +351,10 @@ function PlanCard({ plan, focused }: { plan: Plan; focused: boolean }) {
                 <Link to={`/jobs/${plan.job_id}`} className="font-semibold underline">
                   {plan.job_title}
                 </Link>
+                {' · '}
+                <Link to={`/jobs/${plan.job_id}/workspace`} className="font-semibold underline">
+                  Back to the Tailor
+                </Link>
               </>
             ) : (
               'Made by the Coach'

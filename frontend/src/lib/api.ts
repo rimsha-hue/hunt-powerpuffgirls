@@ -208,6 +208,25 @@ export function groupFacts(rows: Evidence[]): FactGroup[] {
   return [...groups.values()]
 }
 
+/** One badge per source: a fact found twice on the same page (in two entries) is one proof to show,
+ * though deleting the fact still removes every copy. */
+export function uniqueSources(group: FactGroup): Evidence[] {
+  const seen = new Set<string>()
+  return group.sources.filter((s) => {
+    const key = `${s.source}|${s.source_ref}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/** The entry line under a fact, unless it only repeats the fact ("NUST in ... (NUST)"). */
+export function contextNote(group: FactGroup): string | null {
+  const context = group.context
+  if (!context) return null
+  return context.toLowerCase().includes(group.claim_text.toLowerCase()) ? null : context
+}
+
 export type ApplyMethod = 'email' | 'form' | 'unknown'
 
 export type JobStatus =

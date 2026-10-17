@@ -35,6 +35,19 @@ because the local Python is 3.13 and the project needs 3.12 (see "How to run che
 - Workspace: "Compare with your words (N changed)", "Open their form" link, Coach panel on the job
   page ("Grow into this job").
 
+## Later in the session (about 08:30 PKT)
+
+- PR #17 merged; Neon at **0013** (`skill_plans.ideas_json`).
+- Branch `feat/coach-project-ideas`: Coach project ideas with PDF/Markdown one-page proposals
+  (done), plus ledger fixes: titled sections (certifications, awards, publications) are read
+  one-per-line from resumes only, never from portfolio pages; the extraction schema rejects bad
+  items one by one instead of failing the whole answer; a school's acronym is an alias of one fact
+  ("Name (ACR)"), merged in `reconcile` and understood by `Ledger.build`; nav tab renamed "Tailor"
+  and plans link back to their job's Tailor. Re-sync the portfolio and re-upload the resume to
+  rebuild old rows.
+- Owner's remaining asks, in order: Tailor "revise with instructions" box, CV PDF templates with
+  automatic format checks, UI polish pass. Commit after each.
+
 ## To do, in priority order
 
 1. **Merge PR #17** after CI.

@@ -13,7 +13,7 @@ const NAV = [
   { to: '/onboarding', label: 'Onboarding', icon: Rocket },
   { to: '/ledger', label: 'Evidence ledger', icon: BookCheck },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
-  { to: '/applications', label: 'Applications', icon: FileStack },
+  { to: '/applications', label: 'Tailor', icon: FileStack },
   { to: '/plans', label: 'Growth plans', icon: Sprout },
   { to: '/activity', label: 'Activity', icon: Activity },
 ]
