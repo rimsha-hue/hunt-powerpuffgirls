@@ -16,11 +16,34 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+class UTCDateTime(TypeDecorator[datetime]):
+    """A timestamp that is always timezone-aware UTC when read back.
+
+    Postgres keeps the zone; SQLite (tests, the local fallback) drops it, and comparing a naive
+    value with an aware one raises. Every timestamp column uses this type, so code never has to
+    guess which kind it was given."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("Timestamps must be timezone-aware.")
+        return value.astimezone(UTC) if value is not None else None
+
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class Base(DeclarativeBase):
@@ -43,7 +66,7 @@ class User(Base):
     google_sub: Mapped[str | None] = mapped_column(String(255))
     github_username: Mapped[str | None] = mapped_column(String(100))
     portfolio_url: Mapped[str | None] = mapped_column(String(500))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     profile: Mapped["Profile"] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True, uselist=False
@@ -86,8 +109,8 @@ class AuthSession(Base):
     csrf_token: Mapped[str] = mapped_column(String(64))
     # A session minted from a signed Apply link is limited to one job (Phase 2).
     scope_job_id: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
 
 class ResumeLine(Base):
@@ -132,7 +155,7 @@ class Evidence(Base):
     context: Mapped[str | None] = mapped_column(String(200))
     confirmed_by: Mapped[str] = mapped_column(String(10), default="system")
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class ClaimBlocklist(Base):
@@ -142,7 +165,7 @@ class ClaimBlocklist(Base):
     user_id: Mapped[int] = _user_fk()
     normalized_value: Mapped[str] = mapped_column(String(500))
     reason: Mapped[str] = mapped_column(String(200), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class Job(Base):
@@ -167,8 +190,12 @@ class Job(Base):
     remote: Mapped[bool] = mapped_column(default=False)
     url: Mapped[str] = mapped_column(String(1000))
     description: Mapped[str] = mapped_column(Text, default="")
-    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    posted_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    fetched_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    # When the source says applications close, and when the posting's own site last said it was
+    # still open (services/liveness.py).
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    open_checked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     apply_method: Mapped[str] = mapped_column(String(10))  # email | form | unknown
     apply_email: Mapped[str | None] = mapped_column(String(320))
     apply_url: Mapped[str | None] = mapped_column(String(1000))
@@ -181,9 +208,9 @@ class Job(Base):
     matched_skills: Mapped[list[str]] = mapped_column(default=list)
     missing_skills: Mapped[list[str]] = mapped_column(default=list)
     status: Mapped[str] = mapped_column(String(20), default="new")
-    status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    status_changed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     # Set when the job went out in a digest, so each job is announced once.
-    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class ApplyToken(Base):
@@ -195,9 +222,9 @@ class ApplyToken(Base):
     user_id: Mapped[int] = _user_fk()
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class Notification(Base):
@@ -206,7 +233,7 @@ class Notification(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = _user_fk()
     kind: Mapped[str] = mapped_column(String(20))  # "digest"
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     job_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
 
 
@@ -229,7 +256,7 @@ class Application(Base):
     ats_after_detail_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
     # Claims sent to the user when the CV was first verified; should fall job after job.
     questions_asked: Mapped[int] = mapped_column(Integer, default=0)
-    cv_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cv_approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     cover_letter: Mapped[str | None] = mapped_column(Text)
     # Sentence blocks of the email body and cover letter, verified like the CV (Phase 4).
     email_blocks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
@@ -243,12 +270,12 @@ class Application(Base):
     email_body: Mapped[str | None] = mapped_column(Text)
     attachments_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     answers_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     message_id: Mapped[str | None] = mapped_column(String(300))
-    follow_up_due: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    follow_up_due: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class Claim(Base):
@@ -285,7 +312,7 @@ class Claim(Base):
     pair_text: Mapped[str | None] = mapped_column(String(500))
     # confirmed | edited | removed | false, once the user answered a Needs-you claim
     user_decision: Mapped[str | None] = mapped_column(String(12))
-    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class CompanyFact(Base):
@@ -298,7 +325,7 @@ class CompanyFact(Base):
     company_key: Mapped[str] = mapped_column(String(200))
     fact: Mapped[str] = mapped_column(Text)
     source_url: Mapped[str] = mapped_column(String(1000))
-    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class SkillPlan(Base):
@@ -324,9 +351,9 @@ class SkillPlan(Base):
     repo_url: Mapped[str | None] = mapped_column(String(300))
     # The last repo check, one row per acceptance criterion: [{"name", "passed", "detail"}]
     checks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class ApplicationFile(Base):
@@ -344,7 +371,7 @@ class ApplicationFile(Base):
     filename: Mapped[str] = mapped_column(String(120))
     content_type: Mapped[str] = mapped_column(String(100))
     data: Mapped[bytes] = mapped_column(LargeBinary)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class Audit(Base):
@@ -357,6 +384,4 @@ class Audit(Base):
     entity: Mapped[str] = mapped_column(String(40))
     entity_id: Mapped[str | None] = mapped_column(String(64))
     detail_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)

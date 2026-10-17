@@ -60,6 +60,12 @@ def greenhouse_ids(url: str) -> tuple[str, str] | None:
     return None
 
 
+def lever_ids(url: str) -> tuple[str, str] | None:
+    """(company, posting id) from a Lever job URL."""
+    match = _LEVER_URL.match(url)
+    return (match.group("company"), match.group("id")) if match else None
+
+
 def _text(html: str | None) -> str:
     return html_to_text(html or "").replace("\n", " ").replace("• ", "") if html else ""
 

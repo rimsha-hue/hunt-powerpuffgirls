@@ -165,6 +165,7 @@ def build_job(
         description=posting.description,
         posted_at=posting.posted_at,
         fetched_at=now,
+        expires_at=posting.expires_at,
         apply_method=how.method,
         apply_email=how.apply_email,
         apply_url=how.apply_url,

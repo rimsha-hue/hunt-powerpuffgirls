@@ -16,7 +16,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     APP_ENV=production \
     PORT=8000 \
-    EMBEDDING_CACHE_DIR=/srv/models
+    FASTEMBED_CACHE_PATH=/srv/models
 
 WORKDIR /srv
 

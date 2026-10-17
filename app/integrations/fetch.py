@@ -34,6 +34,14 @@ class FetchError(Exception):
     """The page could not be fetched. The message is safe to show the user."""
 
 
+class FetchHTTPError(FetchError):
+    """The site answered with an error status."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"The site answered with HTTP {status}.")
+        self.status = status
+
+
 class FetchBlockedError(FetchError):
     """The URL points somewhere we refuse to go."""
 
@@ -163,7 +171,7 @@ class SafeFetcher:
         self, url: str, response: httpx.Response, accept: tuple[str, ...]
     ) -> FetchResult:
         if response.status_code >= 400:
-            raise FetchError(f"The site answered with HTTP {response.status_code}.")
+            raise FetchHTTPError(response.status_code)
         content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
         if content_type and not content_type.startswith(accept):
             raise FetchError("That link is not a web page.")

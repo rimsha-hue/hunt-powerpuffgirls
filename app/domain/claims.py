@@ -199,6 +199,21 @@ def outside(claims: Iterable[FoundClaim], text: str, phrases: Iterable[str]) -> 
 
 
 _FIRST_PERSON = re.compile(r"\bI\b|\b(?:my|me|we|our|us)\b", re.I)
+# What the writer hopes or offers to do next ("I look forward to discussing...", "I would welcome
+# the chance to..."). It states no fact about the candidate, so there is nothing to prove.
+_INTENT = re.compile(
+    r"\b(?:look(?:ing)? forward|would (?:welcome|love|like|value|appreciate|be (?:glad|happy|"
+    r"delighted|excited))|(?:am|I'm) (?:eager|excited|keen|happy|glad) to|hope to|hoping to|"
+    r"welcome the (?:chance|opportunity)|thank you|thanks for)\b",
+    re.I,
+)
+
+
+def is_intent(clause: str) -> bool:
+    """True for a clause about the writer's intentions or thanks, not their record."""
+    return bool(_INTENT.search(clause))
+
+
 _RELATIVE = re.compile(r"\b(?:that|which|who|whose|where|while|whereas)\b", re.I)
 
 

@@ -3,7 +3,7 @@ link that opens one job (signing the user in for that job only)."""
 
 import re
 from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,6 +13,7 @@ from app.assets import RECORDED_JOBS
 from app.config import Settings
 from app.domain.jobs import JobPosting
 from app.integrations.email import OutgoingEmail
+from app.integrations.fetch import FetchHTTPError, FetchResult
 from app.integrations.jobs.base import JobQuery, JobSourceError
 from app.integrations.jobs.sources import RecordedSource
 from app.main import create_app
@@ -100,15 +101,43 @@ def primary() -> FakeSource:
     return FakeSource("fake", [*POSTINGS, _posting("1-copy", "Machine Learning Engineer")])
 
 
-def _client(settings: Settings, sources: ScoutSources, email: FakeEmail) -> TestClient:
-    app = create_app(settings, llm=FakeLLM(), locations=LOCATIONS, job_sources=sources, email=email)
+class JobSites:
+    """Each posting's own site: open unless its URL is listed as gone."""
+
+    def __init__(self) -> None:
+        self.gone: set[str] = set()
+
+    async def fetch(self, url: str, accept: tuple[str, ...] = ()) -> FetchResult:
+        if url in self.gone:
+            raise FetchHTTPError(404)
+        return FetchResult(url=url, status=200, content_type="text/html", text="Apply here")
+
+
+@pytest.fixture
+def sites() -> JobSites:
+    return JobSites()
+
+
+def _client(
+    settings: Settings, sources: ScoutSources, email: FakeEmail, sites: JobSites | None = None
+) -> TestClient:
+    app = create_app(
+        settings,
+        llm=FakeLLM(),
+        locations=LOCATIONS,
+        job_sources=sources,
+        email=email,
+        fetcher=sites or JobSites(),  # type: ignore[arg-type]
+    )
     return TestClient(app)
 
 
 @pytest.fixture
-def jobs_client(settings: Settings, primary: FakeSource, email: FakeEmail) -> Iterator[TestClient]:
+def jobs_client(
+    settings: Settings, primary: FakeSource, email: FakeEmail, sites: JobSites
+) -> Iterator[TestClient]:
     sources = ScoutSources([primary], [], RecordedSource(RECORDED_JOBS))
-    with _client(settings, sources, email) as client:
+    with _client(settings, sources, email, sites) as client:
         yield client
 
 
@@ -169,6 +198,29 @@ class TestFetch:
         assert digest.subject == "Power Hunt: 2 new jobs for you"
         assert set(_links(email)) == {j["id"] for j in jobs}
         assert "<script" not in (digest.html or "")
+
+    def test_closed_postings_are_never_offered(
+        self, jobs_client: TestClient, email: FakeEmail, sites: JobSites
+    ) -> None:
+        sites.gone.add("https://jobs.example/2/apply")  # applications closed at the source
+        headers = _onboard(jobs_client)
+        assert jobs_client.post("/api/jobs/fetch", headers=headers).json()["digest_sent"] == 1
+        assert [j["title"] for j in jobs_client.get("/api/jobs").json()] == [
+            "Machine Learning Engineer"
+        ]
+        closed = jobs_client.get("/api/jobs?view=closed").json()
+        assert [(j["title"], j["status"]) for j in closed] == [("ML Engineer, Remote", "expired")]
+        assert set(_links(email)) == {j["id"] for j in jobs_client.get("/api/jobs").json()}
+
+    def test_posted_date_filter(self, jobs_client: TestClient) -> None:
+        headers = _onboard(jobs_client)
+        jobs_client.post("/api/jobs/fetch", headers=headers)
+        today = datetime.now(UTC).date()
+        assert len(jobs_client.get(f"/api/jobs?posted_from={today}&posted_to={today}").json()) == 2
+        tomorrow = today + timedelta(days=1)
+        assert jobs_client.get(f"/api/jobs?posted_from={tomorrow}").json() == []
+        backwards = jobs_client.get(f"/api/jobs?posted_from={tomorrow}&posted_to={today}")
+        assert backwards.status_code == 422
 
     def test_second_fetch_adds_nothing_and_sends_nothing(
         self, jobs_client: TestClient, email: FakeEmail

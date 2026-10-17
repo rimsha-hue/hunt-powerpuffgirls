@@ -171,10 +171,13 @@ function AnswerCard({
 export function FormPanel({
   app,
   jobId,
+  formUrl,
   renderBlock,
 }: {
   app: Application
   jobId: number
+  /** The posting's apply page, until the form itself has been read. */
+  formUrl: string | null
   renderBlock: (claims: Claim[]) => (block: CvBlock, index: number) => ReactNode
 }) {
   const qc = useQueryClient()
@@ -210,10 +213,28 @@ export function FormPanel({
   const form = app.form
   const locked = app.status === 'submitted' || app.status === 'sent'
   const unanswered = form ? form.answers.every((a) => !a.answer) : true
+  const link = form?.url ?? formUrl
 
   return (
     <Panel>
-      <PanelTitle kicker="Flow D: apply on their form">Form answers</PanelTitle>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <PanelTitle kicker="Flow D: apply on their form">Form answers</PanelTitle>
+        {link && (
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-lg border-3 border-ink bg-card px-3 py-1.5 text-sm font-semibold shadow-comic-sm"
+          >
+            Open their form <ExternalLink className="size-4" aria-hidden />
+          </a>
+        )}
+      </div>
+      {app.status === 'sent' && (
+        <p className="mb-3 rounded-lg border-2 border-ink bg-signal px-3 py-2 text-sm font-semibold">
+          You already applied to this job by email, so the form answers are closed.
+        </p>
+      )}
       {!form ? (
         <p className="mb-3 text-sm">
           Power Hunt reads the employer's form (Greenhouse, Lever or the apply page), answers each question by its type,

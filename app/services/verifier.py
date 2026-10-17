@@ -24,6 +24,7 @@ from app.domain.claims import (
     clause_around,
     code_claims,
     from_context,
+    is_intent,
     locate,
     merge,
     outside,
@@ -49,7 +50,8 @@ CLAIM_SYSTEM = (
     "is one checkable statement: a skill or tool used, a result, a role or title held, an "
     "employer, a degree, a school attended, a certification, a project, or an action taken. "
     "Quote each claim exactly as it appears in its bullet, as a short span (a few words), and "
-    "give its type. Do not paraphrase, merge bullets or add anything."
+    "give its type. Do not paraphrase, merge bullets or add anything. What the candidate hopes "
+    "or offers to do next, and thanks, are not claims."
 )
 CLAIM_TASK = (
     "List every claim in every bullet. Types: skill, metric, employer, degree, school, "
@@ -146,7 +148,10 @@ def _find(
     context: Sequence[str],
     subject: str = "",
 ) -> list[FoundClaim]:
-    found = merge([*code_claims(block.text, taxonomy, ledger.names), *llm_found])
+    # An LLM claim inside a statement of intent ("I look forward to discussing...") asserts
+    # nothing; any number, skill or organisation in it is still found by the code pass.
+    stated = [c for c in llm_found if not is_intent(clause_around(block.text, c.start, c.end))]
+    found = merge([*code_claims(block.text, taxonomy, ledger.names), *stated])
     return [
         c
         for c in outside(found, block.text, ignore)

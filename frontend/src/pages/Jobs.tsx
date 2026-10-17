@@ -5,12 +5,12 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { MethodBadge, ScoreChip } from '../components/JobBits'
 import { Button, ErrorNote, FilterChips, Skeleton } from '../components/ui'
-import { api, json, type Job, type ScoutRun } from '../lib/api'
+import { api, json, STATUS_LABELS, type Job, type ScoutRun } from '../lib/api'
 import { useCalm } from '../lib/calm'
 import { postedLabel } from '../lib/time'
 import { useToast } from '../lib/toast'
 
-type View = 'open' | 'applied' | 'skipped' | 'all'
+type View = 'open' | 'applied' | 'skipped' | 'closed' | 'all'
 type Method = 'all' | 'email' | 'form'
 type MinMatch = '0' | '50' | '70'
 
@@ -18,6 +18,7 @@ const VIEWS: Array<{ value: View; label: string }> = [
   { value: 'open', label: 'Open' },
   { value: 'applied', label: 'Applied' },
   { value: 'skipped', label: 'Skipped' },
+  { value: 'closed', label: 'Closed' },
   { value: 'all', label: 'All' },
 ]
 const METHODS: Array<{ value: Method; label: string }> = [
@@ -91,10 +92,15 @@ function JobCard({ job, index, onSkip }: { job: Job; index: number; onSkip: (job
         </span>
         {job.status !== 'new' && (
           <span className="rounded-full border-2 border-ink bg-ink px-2 py-0.5 font-mono text-xs font-medium uppercase text-card">
-            {job.status.replace('_', ' ')}
+            {STATUS_LABELS[job.status]}
           </span>
         )}
-        <span className="ml-auto font-mono text-xs">{postedLabel(job.posted_at ?? job.fetched_at)}</span>
+        <span
+          className="ml-auto font-mono text-xs"
+          title={job.posted_at ? 'When the job source says it was posted' : 'The source gives no posting date'}
+        >
+          {job.posted_at ? `posted ${postedLabel(job.posted_at)}` : `found ${postedLabel(job.fetched_at)}`}
+        </span>
       </div>
 
       {job.missing_skills.length > 0 && (
@@ -131,13 +137,17 @@ export default function Jobs() {
   const calm = useCalm()
   const qc = useQueryClient()
   const toast = useToast()
-  const key = ['jobs', view, method, minMatch] as const
+  const [postedFrom, setPostedFrom] = useState('')
+  const [postedTo, setPostedTo] = useState('')
+  const key = ['jobs', view, method, minMatch, postedFrom, postedTo] as const
 
   const jobs = useQuery({
     queryKey: key,
     queryFn: () => {
       const params = new URLSearchParams({ view, min_match: minMatch })
       if (method !== 'all') params.set('method', method)
+      if (postedFrom) params.set('posted_from', postedFrom)
+      if (postedTo) params.set('posted_to', postedTo)
       return api<Job[]>(`/api/jobs?${params.toString()}`)
     },
     placeholderData: keepPreviousData,
@@ -181,7 +191,7 @@ export default function Jobs() {
   })
 
   const rows = jobs.data ?? []
-  const filtered = view !== 'open' || method !== 'all' || minMatch !== '0'
+  const filtered = view !== 'open' || method !== 'all' || minMatch !== '0' || Boolean(postedFrom || postedTo)
 
   return (
     <div className="flex flex-col gap-6">
@@ -210,7 +220,49 @@ export default function Jobs() {
         <div className="flex flex-wrap gap-x-4 gap-y-2">
           <FilterChips label="Apply method" options={METHODS} value={method} onChange={setMethod} />
           <FilterChips label="Minimum match" options={MIN_MATCH} value={minMatch} onChange={setMinMatch} />
+          <fieldset className="flex flex-wrap items-center gap-2 text-sm">
+            <legend className="sr-only">Posted between</legend>
+            <span className="font-semibold">Posted</span>
+            <label className="flex items-center gap-1">
+              from
+              <input
+                type="date"
+                value={postedFrom}
+                max={postedTo || undefined}
+                onChange={(e) => setPostedFrom(e.target.value)}
+                className="rounded-lg border-2 border-ink bg-white px-2 py-0.5 font-mono text-xs"
+              />
+            </label>
+            <label className="flex items-center gap-1">
+              to
+              <input
+                type="date"
+                value={postedTo}
+                min={postedFrom || undefined}
+                onChange={(e) => setPostedTo(e.target.value)}
+                className="rounded-lg border-2 border-ink bg-white px-2 py-0.5 font-mono text-xs"
+              />
+            </label>
+            {(postedFrom || postedTo) && (
+              <button
+                type="button"
+                className="text-xs font-semibold underline"
+                onClick={() => {
+                  setPostedFrom('')
+                  setPostedTo('')
+                }}
+              >
+                Any date
+              </button>
+            )}
+          </fieldset>
         </div>
+        {view === 'open' && (
+          <p className="text-xs text-ink/70">
+            Open jobs are checked on their own site before you see them; ones that stopped taking applications move to
+            Closed.
+          </p>
+        )}
       </div>
 
       <form

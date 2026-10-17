@@ -178,6 +178,7 @@ def create_app(
             taxonomy=app.state.taxonomy,
             locations=location_index,
             settings=settings,
+            fetcher=app.state.fetcher,
         )
         # The embedding model loads in the background; until then the Verifier uses the lexical
         # similarity, which only ever sends more claims to the user.

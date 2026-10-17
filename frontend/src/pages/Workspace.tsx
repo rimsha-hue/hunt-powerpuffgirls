@@ -169,16 +169,16 @@ function TailoredCv({ app, showOriginal, fresh }: { app: Application; showOrigin
             <div key={index} className={cx('flex gap-2', block.section === 'summary' && 'pl-0')}>
               {block.section !== 'summary' && <span aria-hidden>•</span>}
               <div>
+                {showOriginal && block.rewritten && (
+                  <p className="mb-1 rounded-md border-2 border-dashed border-ink/40 bg-card px-2 py-1 text-ink/80">
+                    <span className="mr-1 font-mono text-[11px] font-semibold uppercase">Your words</span>
+                    <del className="decoration-ink/40">{block.original}</del>
+                  </p>
+                )}
                 {block.text ? (
                   <BlockText block={block} claims={claims} fresh={fresh} />
                 ) : (
                   <span className="italic">Removed.</span>
-                )}
-                {showOriginal && block.rewritten && (
-                  <p className="mt-0.5 text-xs text-ink/70">
-                    <span className="font-mono uppercase">Original: </span>
-                    {block.original}
-                  </p>
                 )}
               </div>
             </div>
@@ -508,9 +508,16 @@ export default function Workspace() {
         <Panel className="min-w-0">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
             <PanelTitle kicker="Tailor + Verifier">Your tailored CV</PanelTitle>
-            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => setShowOriginal((v) => !v)}>
+            <Button
+              variant="ghost"
+              className="px-2 py-1 text-xs"
+              aria-pressed={showOriginal}
+              onClick={() => setShowOriginal((v) => !v)}
+            >
               {showOriginal ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
-              {showOriginal ? 'Hide original' : 'Show original'}
+              {showOriginal
+                ? 'Hide your words'
+                : `Compare with your words (${app.blocks.filter((b) => b.kind === 'bullet' && b.rewritten).length} changed)`}
             </Button>
           </div>
           <p className="mb-3 flex flex-wrap gap-2 text-xs">
@@ -625,7 +632,7 @@ export default function Workspace() {
           {route === 'email' ? (
             <EmailPanel app={app} jobId={j.id} renderBlock={sentenceRenderer} />
           ) : (
-            <FormPanel app={app} jobId={j.id} renderBlock={sentenceRenderer} />
+            <FormPanel app={app} jobId={j.id} formUrl={j.apply_url ?? j.url} renderBlock={sentenceRenderer} />
           )}
         </section>
       )}

@@ -135,6 +135,7 @@ class JobPosting:
     posted_at: datetime | None
     apply_url: str | None = None
     country_code: str | None = None  # ISO 3166 alpha-2 when the source says
+    expires_at: datetime | None = None  # when the source says applications close
 
 
 def clip(text: str, limit: int) -> str:
@@ -210,3 +211,27 @@ def location_fit(posting: JobPosting, targets: Iterable[Place]) -> bool:
         ):
             return True
     return False
+
+
+# ---- Is the posting still open ----------------------------------------------------------------
+#
+# Aggregators keep listing jobs after the employer closes them, and a repost resets the date they
+# show. So a posting is checked at its source before it is offered: a "gone" status, or a page
+# that says applications are closed.
+
+GONE_STATUSES = frozenset({404, 410})
+_CLOSED_RE = re.compile(
+    r"\bno longer (?:accepting (?:applications|candidates)|available|open|active|taking)"
+    r"|\b(?:position|job|role|posting|vacancy|opening) (?:has been|is now|is) "
+    r"(?:filled|closed|expired|no longer available)"
+    r"|\b(?:job|posting|listing|vacancy) (?:has )?expired"
+    r"|\bapplications? (?:are |is |have )?(?:now )?closed"
+    r"|\bnot (?:currently )?accepting applications"
+    r"|\bthis job is closed",
+    re.I,
+)
+
+
+def page_says_closed(text: str) -> bool:
+    """True when a posting page states it no longer takes applications."""
+    return bool(_CLOSED_RE.search(text))

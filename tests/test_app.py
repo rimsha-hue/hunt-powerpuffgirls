@@ -72,6 +72,13 @@ class TestFrontend:
 
 
 class TestSettings:
+    @pytest.mark.parametrize("value", ["", "   "])
+    def test_blank_embedding_cache_dir_means_unset(
+        self, value: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EMBEDDING_CACHE_DIR", value)
+        assert Settings(_env_file=None).embedding_cache_dir is None  # type: ignore[call-arg]
+
     def test_neon_url_gets_async_driver(self) -> None:
         settings = Settings(database_url="postgresql://u:p@host/db?sslmode=require", _env_file=None)  # type: ignore[call-arg]
         assert settings.database_url == "postgresql+psycopg://u:p@host/db?sslmode=require"
