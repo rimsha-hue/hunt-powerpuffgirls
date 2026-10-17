@@ -34,6 +34,9 @@ export function useAuthMutation(mode: 'login' | 'signup') {
       api<Me>(`/api/auth/${mode}`, { method: 'POST', body: json(body) }),
     onSuccess: (me) => {
       setCsrfToken(me.csrf_token)
+      // A new session starts from an empty cache: answers fetched before it (a 401 from an expired
+      // session, another account's data) must never show under the new one.
+      qc.clear()
       qc.setQueryData(meKey, me)
     },
   })

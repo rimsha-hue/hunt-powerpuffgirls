@@ -174,12 +174,58 @@ nothing is sent.
 | Documents | pdfplumber, python-docx, fpdf2 |
 | Frontend | React 19, TypeScript (strict), Tailwind CSS 4, TanStack Query, Motion |
 | Delivery | One multi-stage Docker image on Alternate Clouds; GitHub Actions CI |
+| Approach | Custom code throughout (no n8n). No MCP server in this version. |
 
 ## Architecture
 
 One container: FastAPI serves the JSON API under `/api`, health checks at `/health` and `/ready`,
 and the built React app for every other path. All state lives in Postgres, so the container can
 move between providers freely.
+
+```mermaid
+flowchart LR
+    subgraph Client["Browser"]
+        SPA["React 19 SPA<br/>TypeScript · Tailwind 4 · TanStack Query"]
+    end
+
+    subgraph Container["One Docker container on Alternate Clouds"]
+        direction TB
+        API["FastAPI routers<br/>auth · jobs · tailor · claims · plans · pipeline"]
+        subgraph Services["Agents (services)"]
+            direction LR
+            Scout["Scout + liveness"]
+            Ingest["Ledger ingestion"]
+            Tailor["Tailor"]
+            Verifier["Verifier"]
+            Composer["Composer + Researcher"]
+            Coach["Coach"]
+            Notifier["Notifier + scheduler"]
+        end
+        Domain["Domain rules (pure, tested)<br/>claims · ledger · ATS · CV format · status"]
+        Emb["fastembed bge-small<br/>(baked into the image)"]
+    end
+
+    subgraph External["External services"]
+        LLM["LiteLLM chain<br/>Groq gpt-oss-120b → 20b →<br/>Gemini Flash → Flash-Lite"]
+        Jobs["JSearch · Remotive · Arbeitnow<br/>Greenhouse · Lever"]
+        Web["GitHub API · Tavily · Jina Reader<br/>(SSRF-safe fetcher)"]
+        Mail["Gmail SMTP"]
+        OAuth["Google OAuth"]
+    end
+
+    DB[("Neon Postgres<br/>Alembic migrations")]
+
+    SPA <-->|"JSON · session cookie · CSRF"| API
+    API --> Services
+    Services --> Domain
+    Verifier --> Emb
+    Services <--> DB
+    Ingest & Tailor & Verifier & Composer & Coach --> LLM
+    Scout --> Jobs
+    Ingest & Coach & Composer --> Web
+    Notifier & Composer --> Mail
+    API --> OAuth
+```
 
 | Layer | Path | Rule |
 |---|---|---|
@@ -247,6 +293,21 @@ The app refuses to start with an invalid setting, such as a short secret or a ba
 `https://`, so a misconfigured deploy fails loudly instead of running half-working. Google
 sign-in needs `{APP_BASE_URL}/api/auth/google/callback` registered as a redirect URI.
 
+## API overview
+
+| Path | Purpose |
+|---|---|
+| `GET /health`, `GET /ready` | Dependency status and readiness probe |
+| `/api/auth/*` | Signup, login, Google sign-in, email verification, me, delete my data |
+| `/api/profile`, `/api/meta/*` | Preferences (validated and normalised), client config and suggestions |
+| `/api/resume`, `/api/github/sync`, `/api/portfolio/sync`, `/api/ledger` | Build and browse the evidence ledger |
+| `/api/jobs`, `/api/jobs/fetch`, `/api/jobs/import`, `/apply/{id}?t=` | Jobs, Fetch now, add a job by link, signed Apply links (Gate 1) |
+| `/api/jobs/{id}/tailor`, `/api/claims/{id}/decision` | Tailored CV and Needs-you answers (Gate 2) |
+| `/api/jobs/{id}/application/*` | CV PDF and format checks, email and form flows (Gates 3 and 4) |
+| `/api/applications`, `/api/jobs/{id}/applied-elsewhere` | The applications pipeline |
+| `/api/plans/*` | Growth plans, project ideas and proposals, GitHub verification |
+| `GET /api/activity` | Audit timeline and human-gate counters |
+
 ## Known limitations
 
 - **Meaning drift.** A proven number attached to a different outcome ("latency" instead of
@@ -255,6 +316,27 @@ sign-in needs `{APP_BASE_URL}/api/auth/google/callback` registered as a redirect
   Reply-To set to the applicant. Sending from each user's own mailbox would need Gmail OAuth.
 - **Skill taxonomy.** It holds 370 skills with synonyms; rarer tools aren't recognised as skills
   yet.
+
+## Team
+
+| Name | GitHub |
+|---|---|
+| _Add full name_ | [@Tamkeen-Sara](https://github.com/Tamkeen-Sara) |
+| _Add full name_ | [@rimsha-hue](https://github.com/rimsha-hue) |
+
+## Credits
+
+- **Fonts:** Public Sans (USWDS, OFL 1.1) and Tinos (Steve Matteson, OFL 1.1) in the PDFs, Bangers
+  and JetBrains Mono from Google Fonts (OFL 1.1). Licences in
+  [`app/templates/fonts`](app/templates/fonts).
+- **CV layouts** are our own fpdf2 implementations inspired by widely shared ATS-friendly formats:
+  the Harvard career office resume and "Jake's Resume" (MIT licence, by Jake Gutierrez).
+- **Data and icons:** GeoNames place names (CC BY 4.0), lucide icons (ISC licence).
+- **Characters:** The Powerpuff Girls are trademarks of Cartoon Network / Warner Bros. Discovery.
+  They appear only in the team's own short intro and login clips, for a non-commercial student
+  hackathon entry. The Power Hunt logo, hearts motif and palette are original.
+- Built with help from AI coding assistants; every change was reviewed, tested and committed by
+  the team.
 
 ---
 
