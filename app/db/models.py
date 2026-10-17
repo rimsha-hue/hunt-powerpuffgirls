@@ -68,6 +68,15 @@ class User(Base):
     portfolio_url: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
+    @property
+    def google_linked(self) -> bool:
+        return self.google_sub is not None
+
+    @property
+    def has_password(self) -> bool:
+        """False for accounts made with Google sign-in, which have no usable password."""
+        return bool(self.password_hash)
+
     profile: Mapped["Profile"] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True, uselist=False
     )

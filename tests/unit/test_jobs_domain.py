@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -20,7 +20,12 @@ from app.domain.jobs import (
 )
 from app.domain.locations import REMOTE, Place
 from app.domain.matching import match_job
-from app.domain.status import InvalidTransitionError, transition
+from app.domain.status import (
+    InvalidTransitionError,
+    applied_elsewhere,
+    pipeline_stage,
+    transition,
+)
 from app.domain.taxonomy import default_taxonomy
 from app.integrations.jobs.base import JobQuery
 from app.services.scout import build_queries
@@ -65,6 +70,38 @@ class TestStatus:
 
     def test_skipped_jobs_can_come_back(self) -> None:
         assert transition(transition("new", "skipped"), "new") == "new"
+
+    @pytest.mark.parametrize("current", ["new", "shortlisted", "in_review", "approved", "expired"])
+    def test_applying_elsewhere_is_the_users_own_statement(self, current: str) -> None:
+        assert applied_elsewhere(current) == "applied"
+
+    @pytest.mark.parametrize("current", ["skipped", "applied", "offer", "rejected"])
+    def test_applying_elsewhere_only_before_applying(self, current: str) -> None:
+        with pytest.raises(InvalidTransitionError):
+            applied_elsewhere(current)
+
+
+class TestPipelineStage:
+    NOW = datetime(2026, 10, 17, tzinfo=UTC)
+
+    @pytest.mark.parametrize(
+        ("job", "application", "follow_up", "stage"),
+        [
+            ("shortlisted", None, None, "picked"),
+            ("in_review", "draft", None, "tailoring"),
+            ("approved", "cv_approved", None, "ready"),
+            ("applied", "sent", NOW + timedelta(days=2), "applied"),
+            ("applied", "sent", NOW - timedelta(days=1), "follow_up"),
+            ("applied", None, None, "applied"),  # applied on their site, tracked here
+            ("interview", "sent", NOW - timedelta(days=1), "interview"),  # a reply ends follow-up
+            ("rejected", "submitted", None, "rejected"),
+            ("expired", "draft", None, "closed"),
+        ],
+    )
+    def test_stage(
+        self, job: str, application: str | None, follow_up: datetime | None, stage: str
+    ) -> None:
+        assert pipeline_stage(job, application, follow_up, self.NOW) == stage
 
     def test_unknown_status_is_refused(self) -> None:
         with pytest.raises(InvalidTransitionError):

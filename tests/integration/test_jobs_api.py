@@ -316,6 +316,28 @@ class TestStatusAndGate:
         )
         assert refused.status_code == 409
 
+    def test_pipeline_tracks_picked_and_self_applied_jobs(self, jobs_client: TestClient) -> None:
+        headers = _onboard(jobs_client)
+        jobs_client.post("/api/jobs/fetch", headers=headers)
+        first, second = (j["id"] for j in jobs_client.get("/api/jobs").json())
+        assert jobs_client.get("/api/applications").json() == []  # nothing picked yet
+
+        jobs_client.post(f"/api/jobs/{first}/apply", headers=headers)
+        marked = jobs_client.post(f"/api/jobs/{second}/applied-elsewhere", headers=headers)
+        assert marked.json()["status"] == "applied"
+        again = jobs_client.post(f"/api/jobs/{second}/applied-elsewhere", headers=headers)
+        assert again.status_code == 409
+
+        stages = {i["job"]["id"]: i for i in jobs_client.get("/api/applications").json()}
+        assert stages[first]["stage"] == "picked" and not stages[first]["external"]
+        assert stages[second]["stage"] == "applied" and stages[second]["external"]
+
+        jobs_client.post(
+            f"/api/jobs/{second}/status", json={"status": "interview"}, headers=headers
+        )
+        stages = {i["job"]["id"]: i["stage"] for i in jobs_client.get("/api/applications").json()}
+        assert stages[second] == "interview"
+
     def test_users_cannot_see_each_others_jobs(self, jobs_client: TestClient) -> None:
         headers = _onboard(jobs_client)
         jobs_client.post("/api/jobs/fetch", headers=headers)
@@ -324,6 +346,9 @@ class TestStatusAndGate:
         other = {"X-CSRF-Token": signup(jobs_client, "villain@example.com")}
         assert jobs_client.get(f"/api/jobs/{job_id}").status_code == 404
         assert jobs_client.post(f"/api/jobs/{job_id}/apply", headers=other).status_code == 404
+        marked = jobs_client.post(f"/api/jobs/{job_id}/applied-elsewhere", headers=other)
+        assert marked.status_code == 404
+        assert jobs_client.get("/api/applications").json() == []
 
 
 class TestApplyLink:

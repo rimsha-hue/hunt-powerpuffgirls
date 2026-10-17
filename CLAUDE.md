@@ -1,6 +1,7 @@
 # CLAUDE.md: Power Hunt
 
-Operating guide for Claude Code on this repository. Read this first, then `docs/HANDOVER.md`
+Operating guide for Claude Code on this repository. Read this first, then `docs/NEXT_STEPS.md`
+(the latest handoff: current state and the prioritised to-do list), then `docs/HANDOVER.md`
 (current state and next steps), `docs/ARCHITECTURE.md` (how the code fits together) and
 `docs/SPEC.md` (the original product and engineering spec, the source of truth for features).
 `docs/BUILD_LOG.md` records how phases 0 to 5 were built: steps, files, tests, issues, Docker notes.
