@@ -220,6 +220,22 @@ export type JobStatus =
   | 'expired'
   | 'skipped'
 
+/** Status names as the user reads them. The stored names follow the spec's gates; "shortlisted"
+ * there means the user picked the job, which on screen could read as a recruiter's decision. */
+export const STATUS_LABELS: Record<JobStatus, string> = {
+  new: 'New',
+  shortlisted: 'Picked by you',
+  in_review: "You're reviewing",
+  approved: 'Ready to send',
+  applied: 'Applied',
+  interview: 'Interview',
+  assessment: 'Assessment',
+  offer: 'Offer',
+  rejected: 'Rejected',
+  expired: 'Closed',
+  skipped: 'Skipped',
+}
+
 export interface Job {
   id: number
   source: string

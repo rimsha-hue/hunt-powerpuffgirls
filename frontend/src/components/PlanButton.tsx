@@ -33,7 +33,7 @@ export function SkillGap({ skill, jobId }: { skill: string; jobId: number }) {
       title={`Ask the Coach for a project that proves ${skill}`}
     >
       <Sprout className="size-3.5" aria-hidden />
-      {skill}
+      {make.isPending ? `Planning ${skill}…` : skill}
       <span className="sr-only">: make a growth plan</span>
     </button>
   )

@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     # Ignore postings older than this.
     scout_max_age_days: int = Field(default=30, ge=1, le=365)
     scout_interval_hours: int = Field(default=6, ge=1, le=168)
+    # Before a job is offered, its own site is asked whether it still takes applications.
+    # A job confirmed open is asked again after this many hours.
+    job_open_recheck_hours: int = Field(default=12, ge=1, le=168)
+    # Site checks per Scout run (best matches first) and how many run at once.
+    job_open_checks_per_run: int = Field(default=20, ge=0, le=200)
+    job_open_check_concurrency: int = Field(default=5, ge=1, le=20)
     # Runs the Scout on the interval above in this process. Turn off where another instance
     # already runs it, or when only POST /internal/run-scout should trigger it.
     scheduler_enabled: bool = True
@@ -142,10 +148,18 @@ class Settings(BaseSettings):
     # lower and so asks the user more often.
     embeddings_enabled: bool = True
     embedding_model: str = "BAAI/bge-small-en-v1.5"
-    # Where the model files live; the Docker image downloads them here at build time.
+    # Where the model files live. Unset: fastembed's own FASTEMBED_CACHE_PATH, which the Docker
+    # image points at the model it downloads at build time.
     embedding_cache_dir: Path | None = None
 
     static_dir: Path = ROOT_DIR / "frontend" / "dist"
+
+    @field_validator("embedding_cache_dir", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        """`EMBEDDING_CACHE_DIR=` in a .env means "not set". Read as a path it would be ".", the
+        working directory, where the model isn't."""
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("database_url")
     @classmethod

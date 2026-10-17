@@ -1,7 +1,7 @@
 """Jobs: the list and one job, "Fetch now", status changes, Gate 1 (Apply now), the signed Apply
 link from the digest email, and the protected internal Scout trigger."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -15,6 +15,7 @@ from app.api.deps import (
     AppSettings,
     CurrentUser,
     Db,
+    Fetcher,
     Locations,
     Principal,
     Runner,
@@ -36,7 +37,7 @@ from app.domain.ats import Keyword
 from app.domain.status import OPEN_STATUSES, InvalidTransitionError, transition
 from app.integrations.jobs.base import JobSourceError
 from app.integrations.jobs.greenhouse import NotGreenhouseError, greenhouse_posting
-from app.services import audit
+from app.services import audit, liveness
 from app.services.apply_links import ApplyLinkError, redeem
 from app.services.auth import create_session, resolve_session, tokens_match
 from app.services.scout import ScoutError, import_posting
@@ -74,26 +75,54 @@ def _detail(job: Job) -> JobDetailOut:
 async def list_jobs(
     principal: CurrentUser,
     db: Db,
-    view: Annotated[Literal["open", "all", "skipped", "applied"], Query()] = "open",
+    view: Annotated[Literal["open", "all", "skipped", "applied", "closed"], Query()] = "open",
     method: Annotated[Literal["email", "form", "unknown"] | None, Query()] = None,
     min_match: Annotated[int, Query(ge=0, le=100)] = 0,
+    posted_from: Annotated[date | None, Query()] = None,
+    posted_to: Annotated[date | None, Query()] = None,
 ) -> list[JobOut]:
+    """`posted_from` and `posted_to` are inclusive days (UTC). A job whose source gives no date
+    is left out of a date-filtered list, since it can't be shown to be in range."""
+    if posted_from and posted_to and posted_from > posted_to:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "The start date is after the end date."
+        )
     stmt = select(Job).where(Job.user_id == principal.user.id, Job.match_score >= min_match)
     if view == "open":
         stmt = stmt.where(Job.status.in_(OPEN_STATUSES))
     elif view == "skipped":
         stmt = stmt.where(Job.status == "skipped")
+    elif view == "closed":
+        stmt = stmt.where(Job.status == "expired")
     elif view == "applied":
         stmt = stmt.where(Job.status.not_in([*OPEN_STATUSES, "skipped", "expired"]))
     if method:
         stmt = stmt.where(Job.apply_method == method)
+    if posted_from:
+        stmt = stmt.where(Job.posted_at >= datetime.combine(posted_from, time.min, UTC))
+    if posted_to:
+        stmt = stmt.where(
+            Job.posted_at < datetime.combine(posted_to + timedelta(days=1), time.min, UTC)
+        )
     stmt = stmt.order_by(Job.match_score.desc(), Job.fetched_at.desc(), Job.id.desc())
     return [JobOut.model_validate(job) for job in (await db.execute(stmt)).scalars()]
 
 
 @router.get("/api/jobs/{job_id}")
-async def get_job(job_id: int, principal: AnyPrincipal, db: Db) -> JobDetailOut:
-    return _detail(await _job_for(db, principal, job_id))
+async def get_job(
+    job_id: int, principal: AnyPrincipal, db: Db, fetcher: Fetcher, settings: AppSettings
+) -> JobDetailOut:
+    """Opening a job asks its site again (when due) whether it still takes applications."""
+    job = await _job_for(db, principal, job_id)
+    if not settings.demo_mode:
+        await liveness.refresh(
+            db,
+            job,
+            fetcher,
+            now=datetime.now(UTC),
+            recheck=timedelta(hours=settings.job_open_recheck_hours),
+        )
+    return _detail(job)
 
 
 @router.post(

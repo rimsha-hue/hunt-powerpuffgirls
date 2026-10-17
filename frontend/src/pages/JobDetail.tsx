@@ -6,7 +6,7 @@ import { Highlighted } from '../components/Highlighted'
 import { MethodBadge, ScoreChip } from '../components/JobBits'
 import { SkillGap } from '../components/PlanButton'
 import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
-import { api, json, type Job, type JobDetail as Detail, type JobKeyword } from '../lib/api'
+import { api, json, STATUS_LABELS, type Job, type JobDetail as Detail, type JobKeyword } from '../lib/api'
 import { useCalm } from '../lib/calm'
 import { cx } from '../lib/cx'
 import { useMe } from '../lib/session'
@@ -89,7 +89,8 @@ export default function JobDetail() {
   const place = j.remote && !j.location ? 'Remote' : j.location
   const skills = j.keywords.filter((k) => k.kind === 'skill')
   const phrases = j.keywords.filter((k) => k.kind === 'phrase')
-  const chosen = j.status !== 'new' && j.status !== 'skipped'
+  const closed = j.status === 'expired'
+  const chosen = j.status !== 'new' && j.status !== 'skipped' && !closed
 
   return (
     <div className="flex flex-col gap-6">
@@ -110,7 +111,7 @@ export default function JobDetail() {
       <section className="panel hearts flex flex-wrap items-center gap-5 p-6">
         <div className="min-w-0 flex-1">
           <p className="font-mono text-xs font-medium uppercase tracking-widest">
-            {j.source} · posted {postedLabel(j.posted_at ?? j.fetched_at)}
+            {j.source} · {j.posted_at ? `posted ${postedLabel(j.posted_at)}` : `found ${postedLabel(j.fetched_at)}`}
           </p>
           <h1 className="mt-1 text-3xl font-extrabold leading-tight sm:text-4xl">{j.title}</h1>
           <p className="mt-1 text-lg font-semibold">
@@ -120,7 +121,7 @@ export default function JobDetail() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <MethodBadge method={j.apply_method} />
             <span className="rounded-full border-2 border-ink bg-ink px-2 py-0.5 font-mono text-xs font-medium uppercase text-card">
-              {j.status.replace('_', ' ')}
+              {STATUS_LABELS[j.status]}
             </span>
           </div>
         </div>
@@ -145,7 +146,11 @@ export default function JobDetail() {
         <div className="flex flex-col gap-6">
           <Panel>
             <PanelTitle kicker="Gate 1: you choose">Apply?</PanelTitle>
-            {chosen ? (
+            {closed ? (
+              <p className="rounded-lg border-3 border-ink bg-card p-3 text-sm font-semibold">
+                Closed. The posting's own site says it no longer takes applications, so Power Hunt won't prepare one.
+              </p>
+            ) : chosen ? (
               <motion.div
                 initial={calm ? false : { scale: 1.3, rotate: -4, opacity: 0 }}
                 animate={{ scale: 1, rotate: 0, opacity: 1 }}
@@ -182,6 +187,21 @@ export default function JobDetail() {
             )}
           </Panel>
 
+          {j.missing_skills.length > 0 && (
+            <Panel className="bg-bubbles/40">
+              <PanelTitle kicker="Coach">Grow into this job</PanelTitle>
+              <p className="mb-3 text-sm">
+                Your ledger can't prove these yet. Pick one and the Coach plans a small project that proves it, then
+                checks your repo when you're done.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {j.missing_skills.map((skill) => (
+                  <SkillGap key={skill} skill={skill} jobId={j.id} />
+                ))}
+              </div>
+            </Panel>
+          )}
+
           <Panel>
             <PanelTitle kicker="How to apply">{j.apply_method === 'email' ? 'By email' : 'On their site'}</PanelTitle>
             {j.apply_email && (
@@ -217,17 +237,6 @@ export default function JobDetail() {
             <p className="text-sm">
               From the skills your ledger proves, how well the title fits your target roles, and the place.
             </p>
-            {j.missing_skills.length > 0 && (
-              <>
-                <p className="mt-3 mb-1 text-sm font-semibold">Skills your ledger can't prove yet</p>
-                <p className="mb-2 text-xs">Click one for a growth plan from the Coach.</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {j.missing_skills.map((skill) => (
-                    <SkillGap key={skill} skill={skill} jobId={j.id} />
-                  ))}
-                </div>
-              </>
-            )}
           </Panel>
 
           <Panel>

@@ -92,6 +92,7 @@ def posting(
     posted_at: datetime | None,
     apply_url: Any = None,
     country_code: Any = None,
+    expires_at: datetime | None = None,
 ) -> JobPosting | None:
     """A JobPosting with every field cleaned and capped, or None if an essential is missing."""
     title_text = clean_line(str(title or ""))
@@ -111,6 +112,7 @@ def posting(
         posted_at=posted_at,
         apply_url=apply[:MAX_URL] if apply.startswith(("https://", "http://")) else None,
         country_code=str(country_code).upper()[:2] if country_code else None,
+        expires_at=expires_at,
     )
 
 

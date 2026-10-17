@@ -79,6 +79,7 @@ class JSearchSource:
             posted_at=parse_iso(job.get("job_posted_at_datetime_utc")),
             apply_url=apply_link,
             country_code=job.get("job_country"),
+            expires_at=parse_iso(job.get("job_offer_expiration_datetime_utc")),
         )
 
 
