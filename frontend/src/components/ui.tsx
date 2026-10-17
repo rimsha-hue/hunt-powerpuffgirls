@@ -165,6 +165,9 @@ const TYPE_STYLES: Record<FactType, string> = {
   certification: 'bg-buttercup',
   project: 'bg-blush',
   personal: 'bg-blush',
+  publication: 'bg-signal',
+  award: 'bg-signal',
+  other: 'bg-card',
 }
 
 export function TypeTag({ type }: { type: FactType }) {

@@ -122,6 +122,9 @@ export type FactType =
   | 'project'
   | 'role'
   | 'personal'
+  | 'publication'
+  | 'award'
+  | 'other'
 
 export type FactSource = 'resume' | 'github' | 'certificate' | 'portfolio' | 'user_confirmed'
 

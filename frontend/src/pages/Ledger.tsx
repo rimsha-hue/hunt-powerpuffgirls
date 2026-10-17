@@ -6,7 +6,19 @@ import { ErrorNote, FilterChips, Skeleton, SourceBadge, TypeTag } from '../compo
 import { api, groupFacts, type Evidence, type FactGroup, type FactSource, type FactType } from '../lib/api'
 import { useToast } from '../lib/toast'
 
-const TYPES: Array<FactType | 'all'> = ['all', 'skill', 'metric', 'role', 'employer', 'degree', 'certification', 'project']
+const TYPES: Array<FactType | 'all'> = [
+  'all',
+  'skill',
+  'metric',
+  'role',
+  'employer',
+  'degree',
+  'certification',
+  'project',
+  'publication',
+  'award',
+  'other',
+]
 const SOURCES: Array<{ value: FactSource | 'all'; label: string }> = [
   { value: 'all', label: 'All sources' },
   { value: 'resume', label: 'Resume' },

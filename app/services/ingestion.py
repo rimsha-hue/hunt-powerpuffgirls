@@ -21,9 +21,9 @@ from app.domain.ledger import (
     Fact,
     FactType,
     accept_proposed_facts,
-    dedupe,
     extract_facts_by_code,
     normalize_fact,
+    reconcile,
 )
 from app.domain.normalize import normalize_text
 from app.domain.profile import public_url
@@ -60,7 +60,9 @@ EXTRACTION_TASK = (
     "- skill: one language, framework, library, tool, platform or method per fact, as written "
     '(a line "Python, SQL, Power BI" gives three skills).\n'
     "- role: the job title only, without employer or dates.\n"
-    "- employer: the company or organisation name only, without location or dates.\n"
+    "- employer: the name of an organisation the candidate worked or volunteered for, without "
+    "location or dates. The issuer of a course or certificate (a university, Coursera, Cisco "
+    "Networking Academy) is not an employer: it belongs in the certification fact.\n"
     "- degree: the degree as written, from education lines only. Skip degrees the candidate only "
     "plans to pursue.\n"
     "- certification: the certificate or course name as written.\n"
@@ -68,6 +70,10 @@ EXTRACTION_TASK = (
     "- metric: the clause that states a result with a number, for example "
     '"cut report time by 40%". Keep the number and its unit exactly as written.\n'
     "- personal: spoken languages, location and work authorisation.\n"
+    "- publication: the title of a paper, article or thesis the candidate wrote.\n"
+    "- award: the name of an award, honour, scholarship or competition result.\n"
+    "- other: anything else the candidate states about themselves that fits none of the types "
+    "above. Never force a fact into a type it does not fit.\n"
     "Skip contact details (name, email, phone, links). At most 120 facts."
 )
 
@@ -175,9 +181,20 @@ async def _document_facts(
     code_facts = extract_facts_by_code(lines, taxonomy)
     llm_facts, rejected, llm_note = await _llm_facts(llm, lines, taxonomy, document)
     blocked_values = await _blocklist(db, user.id)
-    facts = dedupe([*code_facts, *llm_facts])
+    # The same fact worded differently (here or in another source) becomes one ledger fact.
+    facts = reconcile([*code_facts, *llm_facts], await _ledger_facts(db, user.id), taxonomy)
     kept = [f for f in facts if f.normalized_value not in blocked_values]
     return kept, rejected, len(facts) - len(kept), llm_note
+
+
+async def _ledger_facts(db: AsyncSession, user_id: int) -> list[tuple[str, str, str]]:
+    """(type, normalized_value, claim_text) already in the user's ledger."""
+    rows = await db.execute(
+        select(Evidence.type, Evidence.normalized_value, Evidence.claim_text).where(
+            Evidence.user_id == user_id
+        )
+    )
+    return [(t, v, c) for t, v, c in rows.all()]
 
 
 def _prefill_from_contact(user: User, contact: ContactInfo, phone_region: str) -> None:
@@ -380,6 +397,7 @@ async def ingest_github(
         raise ValueError("No GitHub username on the profile")
     repos = await client.list_repos(user.github_username)
 
+    ledger = await _ledger_facts(db, user.id)
     existing = await db.execute(
         select(Evidence.type, Evidence.normalized_value).where(
             Evidence.user_id == user.id, Evidence.source == "github"
@@ -390,13 +408,17 @@ async def ingest_github(
 
     report = GitHubIngestion(username=user.github_username, repos_scanned=len(repos))
     for repo in repos:
-        for fact_type, claim_text, value in _repo_facts(repo, taxonomy):
-            if (fact_type, value) in seen or value in blocked_values:
+        proposed = [Fact(c, t, v, 0) for t, c, v in _repo_facts(repo, taxonomy)]
+        # A repo restating a resume project ("nazar-core" for NAZAR) joins that ledger fact.
+        for fact in reconcile(proposed, ledger, taxonomy):
+            if (
+                fact.type,
+                fact.normalized_value,
+            ) in seen or fact.normalized_value in blocked_values:
                 continue
-            seen.add((fact_type, value))
-            report.evidence.append(
-                _evidence(user.id, Fact(claim_text, fact_type, value, 0), "github", repo.html_url)
-            )
+            seen.add((fact.type, fact.normalized_value))
+            ledger.append((fact.type, fact.normalized_value, fact.claim_text))
+            report.evidence.append(_evidence(user.id, fact, "github", repo.html_url))
     db.add_all(report.evidence)
     await db.flush()
     audit.record(
