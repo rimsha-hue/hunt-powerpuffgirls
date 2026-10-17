@@ -385,9 +385,9 @@ function Counter({ label, value }: { label: string; value: number }) {
 }
 
 const TEMPLATES: Array<{ value: CvTemplate; label: string }> = [
-  { value: 'classic', label: 'Classic' },
-  { value: 'compact', label: 'Compact' },
-  { value: 'modern', label: 'Modern' },
+  { value: 'classic', label: 'Harvard (serif)' },
+  { value: 'compact', label: "Compact (Jake's)" },
+  { value: 'modern', label: 'Modern (accent)' },
 ]
 
 /** Template choice, the format checks on the rendered PDF, and the download. */

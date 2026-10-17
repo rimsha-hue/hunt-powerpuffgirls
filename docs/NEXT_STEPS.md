@@ -69,6 +69,16 @@ because the local Python is 3.13 and the project needs 3.12 (see "How to run che
   unverified).
 - Still open from the audit: per-user daily send limit, double-send race in `composer.send`.
 
+## CV layouts and media (about 10:15 PKT, same branch)
+
+- CV templates redone after common ATS-friendly designs: `classic` = Harvard (Tinos serif,
+  centered name, ruled headings, italic dates right), `compact` = "Jake's resume" (sans, tight),
+  `modern` (accent name and heading bars). Entry dates sit flush right (`cv_format.split_dates`),
+  skills lines bold their label, certifications/awards list dates on the right. Tinos (OFL) is in
+  `app/templates/fonts` with its licence note.
+- Videos re-encoded with ffmpeg (faststart, no audio, 960px, CRF 30): login uses the owner's new
+  `assets/login-video-2.mp4` (3.8 MB to 0.56 MB) with a regenerated poster; intro 411 to 312 KB.
+
 ## To do, in priority order
 
 1. **Merge PR #17** after CI.
