@@ -490,6 +490,15 @@ export interface Plan {
   ideas: ProjectIdea[]
 }
 
+export type CvTemplate = 'classic' | 'compact' | 'modern'
+
+export interface CvCheck {
+  requested: CvTemplate
+  /** The template the download uses: another one when the requested one fails a check. */
+  template: CvTemplate
+  checks: Array<{ name: string; passed: boolean; detail: string }>
+}
+
 export interface ProjectIdea {
   title: string
   pitch: string

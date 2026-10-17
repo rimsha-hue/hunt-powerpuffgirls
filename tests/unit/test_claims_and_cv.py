@@ -1,4 +1,5 @@
 import random
+from dataclasses import replace
 
 import pytest
 
@@ -14,10 +15,11 @@ from app.domain.claims import (
     route,
 )
 from app.domain.cv import SourceLine, apply_rewrites, base_blocks, cv_document, replace_span
+from app.domain.cv_format import CV_TEMPLATES, MAX_CV_PAGES, CvTemplate, format_checks, passes
 from app.domain.style import style_problems
 from app.domain.taxonomy import default_taxonomy
 from app.integrations.embeddings import lexical_similarity
-from app.integrations.pdf import render_cv
+from app.integrations.pdf import checked_cv, read_back, render_cv
 
 TAX = default_taxonomy()
 
@@ -262,6 +264,32 @@ class TestStyleAndRendering:
         pdf = render_cv(blocks, title="CV")
         assert pdf.startswith(b"%PDF")
         assert cv_document(blocks).has_tables_or_images is False
+
+    @pytest.mark.parametrize("template", CV_TEMPLATES)
+    def test_every_template_passes_its_format_checks(self, template: CvTemplate) -> None:
+        blocks = base_blocks(LINES)
+        text, pages = read_back(render_cv(blocks, title="CV", template=template))
+        assert [c.name for c in format_checks(text, pages, blocks) if not c.passed] == []
+
+    def test_checks_catch_a_missing_line_and_too_many_pages(self) -> None:
+        blocks = base_blocks(LINES)
+        text, _ = read_back(render_cv(blocks, title="CV"))
+        bullet = next(b for b in blocks if b.kind == "bullet")
+        failed = {
+            c.name
+            for c in format_checks(text.replace(bullet.text.split()[0], ""), 3, blocks)
+            if not c.passed
+        }
+        assert {"readable", "pages"} <= failed
+
+    def test_a_long_cv_moves_to_a_template_that_fits(self) -> None:
+        base = base_blocks(LINES)
+        bullet = next(b for b in base if b.kind == "bullet")
+        long = [*base, *(replace(bullet, text=f"{bullet.text} item {i}") for i in range(70))]
+        cv = checked_cv(long, title="CV", preferred="classic")
+        pages = read_back(cv.pdf)[1]
+        assert pages <= MAX_CV_PAGES or not passes(cv.checks)
+        assert cv.template == "compact" or passes(cv.checks)
 
 
 class TestProseClaims:

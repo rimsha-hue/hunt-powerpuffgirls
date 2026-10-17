@@ -20,7 +20,7 @@ import { EmailPanel } from '../components/EmailPanel'
 import { FormPanel } from '../components/FormPanel'
 import { Highlighted } from '../components/Highlighted'
 import { SkillGap } from '../components/PlanButton'
-import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
+import { Button, ErrorNote, FilterChips, Panel, PanelTitle, Skeleton } from '../components/ui'
 import {
   api,
   ApiError,
@@ -30,6 +30,8 @@ import {
   type ClaimAction,
   type ClaimBucket,
   type CvBlock,
+  type CvCheck,
+  type CvTemplate,
   type JobDetail,
 } from '../lib/api'
 import { useCalm } from '../lib/calm'
@@ -382,6 +384,55 @@ function Counter({ label, value }: { label: string; value: number }) {
   )
 }
 
+const TEMPLATES: Array<{ value: CvTemplate; label: string }> = [
+  { value: 'classic', label: 'Classic' },
+  { value: 'compact', label: 'Compact' },
+  { value: 'modern', label: 'Modern' },
+]
+
+/** Template choice, the format checks on the rendered PDF, and the download. */
+function CvDownload({ jobId }: { jobId: number }) {
+  const [template, setTemplate] = useState<CvTemplate>('classic')
+  const check = useQuery({
+    queryKey: ['cv-check', jobId, template],
+    queryFn: () => api<CvCheck>(`/api/jobs/${jobId}/application/cv-check?template=${template}`),
+  })
+  const used = check.data?.template ?? template
+  return (
+    <div className="flex flex-col gap-3">
+      <FilterChips label="CV template" options={TEMPLATES} value={template} onChange={setTemplate} />
+      {check.isPending ? (
+        <p className="text-sm">Checking the PDF…</p>
+      ) : check.data ? (
+        <ul className="flex flex-col gap-1 text-sm">
+          {check.data.checks.map((c) => (
+            <li key={c.name} className="flex items-start gap-1.5">
+              {c.passed ? (
+                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-verified" aria-label="Passed" />
+              ) : (
+                <X className="mt-0.5 size-4 shrink-0" aria-label="Failed" />
+              )}
+              {c.detail}
+            </li>
+          ))}
+          {used !== template && (
+            <li className="font-semibold">
+              {TEMPLATES.find((t) => t.value === template)?.label} didn't pass, so the download uses{' '}
+              {TEMPLATES.find((t) => t.value === used)?.label}.
+            </li>
+          )}
+        </ul>
+      ) : null}
+      <a
+        href={`/api/jobs/${jobId}/application/cv.pdf?template=${template}`}
+        className="inline-flex items-center gap-2 self-start rounded-lg border-3 border-ink bg-buttercup px-4 py-2 font-semibold shadow-comic-sm"
+      >
+        <Download className="size-4" aria-hidden /> Download CV (PDF)
+      </a>
+    </div>
+  )
+}
+
 export default function Workspace() {
   const { id } = useParams()
   const qc = useQueryClient()
@@ -573,12 +624,7 @@ export default function Workspace() {
           <Panel>
             <PanelTitle kicker="Approve">Your CV</PanelTitle>
             {approved ? (
-              <a
-                href={`/api/jobs/${j.id}/application/cv.pdf`}
-                className="inline-flex items-center gap-2 rounded-lg border-3 border-ink bg-buttercup px-4 py-2 font-semibold shadow-comic-sm"
-              >
-                <Download className="size-4" aria-hidden /> Download CV (PDF)
-              </a>
+              <CvDownload jobId={j.id} />
             ) : (
               <div className="flex flex-col gap-2">
                 <Button onClick={() => approve.mutate()} disabled={open.length > 0 || approve.isPending}>

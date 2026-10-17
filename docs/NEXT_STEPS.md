@@ -47,8 +47,11 @@ because the local Python is 3.13 and the project needs 3.12 (see "How to run che
   rebuild old rows.
 - Tailor "revise with instructions" (done, same branch): `POST /jobs/{id}/tailor` takes
   `{"preferences": "..."}` (max 500); it reaches the model as data and the Verifier checks the result.
-- Owner's remaining asks, in order: CV PDF templates with automatic format checks, UI polish pass.
-  Commit after each.
+- CV templates with format checks (done, same branch): classic, compact, modern
+  (`integrations/pdf.py` STYLES); every CV is read back with pdfplumber and checked
+  (`domain/cv_format.py`: readable, at most 2 pages, name first, sections in order); a failing
+  template falls back to one that passes. `GET .../cv-check?template=` and `cv.pdf?template=`.
+- Owner's remaining ask: UI polish pass (same Powerpuff palette and fonts, more consistency).
 
 ## To do, in priority order
 

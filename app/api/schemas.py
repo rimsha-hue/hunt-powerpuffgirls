@@ -281,6 +281,18 @@ class CvBlockOut(BaseModel):
     rewritten: bool
 
 
+class CvFormatCheckOut(BaseModel):
+    name: str
+    passed: bool
+    detail: str
+
+
+class CvCheckOut(BaseModel):
+    requested: str  # the template asked for
+    template: str  # the template the download uses (another when the asked one failed a check)
+    checks: list[CvFormatCheckOut]
+
+
 class TailorIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
