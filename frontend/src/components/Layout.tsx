@@ -1,13 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Activity, BookCheck, Briefcase, FileStack, LogOut, MailCheck, Rocket, Sprout, Wind } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
 import { api, json, type Me } from '../lib/api'
-import { useCalm } from '../lib/calm'
 import { cx } from '../lib/cx'
 import { meKey, useLogout, useMe } from '../lib/session'
 import { useToast } from '../lib/toast'
 import { Logo } from './Logo'
+import { Button } from './ui'
 
 const NAV = [
   { to: '/onboarding', label: 'Onboarding', icon: Rocket },
@@ -56,7 +55,7 @@ function CalmToggle() {
 }
 
 /** Until the email is verified, nothing is sent from the account; say so and offer a new link. */
-function VerifyBanner() {
+function VerifyBanner({ email }: { email: string }) {
   const toast = useToast()
   const resend = useMutation({
     mutationFn: () => api<void>('/api/auth/verify/resend', { method: 'POST' }),
@@ -64,27 +63,33 @@ function VerifyBanner() {
     onError: (err) => toast(err.message, 'error'),
   })
   return (
-    <div className="border-b-3 border-ink bg-signal">
-      <p className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm font-semibold sm:px-6">
+    <section
+      role="status"
+      className="panel flex flex-wrap items-center gap-4 bg-signal p-5"
+      aria-labelledby="verify-title"
+    >
+      <span className="grid size-12 shrink-0 place-items-center rounded-full border-3 border-ink bg-card">
+        <MailCheck className="size-6" aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h2 id="verify-title" className="font-display text-2xl tracking-wide">
+          Confirm your email
+        </h2>
+        <p className="text-sm font-semibold">
+          We sent a link to <span className="break-all underline">{email}</span>. Until you open it, Power Hunt sends no
+          digests and no applications from your account.
+        </p>
+      </div>
+      <Button onClick={() => resend.mutate()} disabled={resend.isPending}>
         <MailCheck className="size-4" aria-hidden />
-        Confirm your email to get digests and send applications. The link is in your inbox.
-        <button
-          type="button"
-          onClick={() => resend.mutate()}
-          disabled={resend.isPending}
-          className="underline disabled:opacity-60"
-        >
-          {resend.isPending ? 'Sending…' : 'Send a new link'}
-        </button>
-      </p>
-    </div>
+        {resend.isPending ? 'Sending…' : 'Send a new link'}
+      </Button>
+    </section>
   )
 }
 
 export function AppLayout() {
-  const location = useLocation()
   const navigate = useNavigate()
-  const calm = useCalm()
   const logout = useLogout()
   const { data: me } = useMe()
   // An Apply-link session sees only its job: no navigation, no settings.
@@ -154,22 +159,11 @@ export function AppLayout() {
         </div>
       </header>
 
-      {me && !scoped && !me.is_demo && !me.user.email_verified && <VerifyBanner />}
-      <main className="relative mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
-        <Outlet />
-        {/* Panel wipe on navigation: decorative, 200 ms, never delays the page underneath. */}
-        <AnimatePresence>
-          {!calm && (
-            <motion.div
-              key={location.pathname}
-              className="pointer-events-none fixed inset-0 z-40 origin-right bg-blossom"
-              initial={{ scaleX: 1 }}
-              animate={{ scaleX: 0 }}
-              transition={{ duration: 0.2, ease: 'easeIn' }}
-              aria-hidden
-            />
-          )}
-        </AnimatePresence>
+      <main className="relative mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6">
+        {me && !scoped && !me.is_demo && !me.user.email_verified && <VerifyBanner email={me.user.email} />}
+        <div>
+          <Outlet />
+        </div>
       </main>
     </div>
   )
