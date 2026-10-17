@@ -73,20 +73,30 @@ async def sign_in_with_google(
     """(user, created). Match by Google account id, then by the verified email, else create.
 
     Linking by email is safe because Google has verified the address: whoever signs in owns it.
+    An account someone made with that email and a password but never verified may not be theirs,
+    so its password and sessions are removed before linking: whoever set them can't get back in.
     """
+    now = datetime.now(UTC)
     result = await db.execute(
         select(User).where(User.google_sub == sub).options(selectinload(User.profile))
     )
     user = result.scalar_one_or_none()
     if user is not None:
+        user.email_verified_at = user.email_verified_at or now
         return user, False
     user = await get_user_by_email(db, email)
     if user is not None:
+        if user.email_verified_at is None:
+            user.password_hash = ""
+            await db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
         user.google_sub = sub
+        user.email_verified_at = user.email_verified_at or now
         if not user.name and name:
             user.name = name
         return user, False
-    return await create_user(db, email=email, password=None, name=name, google_sub=sub), True
+    user = await create_user(db, email=email, password=None, name=name, google_sub=sub)
+    user.email_verified_at = now
+    return user, True
 
 
 async def authenticate(db: AsyncSession, email: str, password: str) -> User | None:

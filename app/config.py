@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     email_redirect_to: str | None = None
     # Signed Apply links in the digest stay valid this long (spec: 72 hours).
     apply_link_hours: int = Field(default=72, ge=1, le=168)
+    # The link that verifies a new account's email stays valid this long.
+    email_verify_hours: int = Field(default=48, ge=1, le=168)
+    # Email the user each time someone signs in to their account.
+    login_alerts: bool = True
 
     # --- Company research (Phase 5) ---
     # Tavily search; without a key, company facts come from the job description only.

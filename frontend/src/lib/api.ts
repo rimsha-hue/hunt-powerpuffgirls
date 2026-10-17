@@ -72,6 +72,8 @@ export interface User {
   portfolio_url: string | null
   google_linked: boolean
   has_password: boolean
+  /** Until true, no digest and no application is emailed from the account. */
+  email_verified: boolean
   created_at: string
 }
 

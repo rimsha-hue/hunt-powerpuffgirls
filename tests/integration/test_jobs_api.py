@@ -212,6 +212,21 @@ class TestFetch:
         assert [(j["title"], j["status"]) for j in closed] == [("ML Engineer, Remote", "expired")]
         assert set(_links(email)) == {j["id"] for j in jobs_client.get("/api/jobs").json()}
 
+    def test_no_digest_until_the_email_is_verified(
+        self, jobs_client: TestClient, email: FakeEmail
+    ) -> None:
+        headers = {"X-CSRF-Token": signup(jobs_client, verify=False)}
+        jobs_client.put(
+            "/api/profile",
+            json={"target_roles": ["Machine Learning Engineer"], "target_locations": ["wfh"]},
+            headers=headers,
+        )
+        jobs_client.post("/api/resume/sample", headers=headers)
+        run = jobs_client.post("/api/jobs/fetch", headers=headers).json()
+        assert run["new_jobs"] > 0 and run["digest_sent"] == 0
+        assert "Verify your email" in run["digest_note"]
+        assert email.sent == []
+
     def test_posted_date_filter(self, jobs_client: TestClient) -> None:
         headers = _onboard(jobs_client)
         jobs_client.post("/api/jobs/fetch", headers=headers)

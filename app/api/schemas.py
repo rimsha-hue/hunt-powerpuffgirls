@@ -38,6 +38,7 @@ class UserOut(BaseModel):
     portfolio_url: str | None
     google_linked: bool
     has_password: bool
+    email_verified: bool
     created_at: datetime
 
 

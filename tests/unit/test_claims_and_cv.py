@@ -15,7 +15,14 @@ from app.domain.claims import (
     route,
 )
 from app.domain.cv import SourceLine, apply_rewrites, base_blocks, cv_document, replace_span
-from app.domain.cv_format import CV_TEMPLATES, MAX_CV_PAGES, CvTemplate, format_checks, passes
+from app.domain.cv_format import (
+    CV_TEMPLATES,
+    MAX_CV_PAGES,
+    CvTemplate,
+    format_checks,
+    passes,
+    split_dates,
+)
 from app.domain.style import style_problems
 from app.domain.taxonomy import default_taxonomy
 from app.integrations.embeddings import lexical_similarity
@@ -264,6 +271,27 @@ class TestStyleAndRendering:
         pdf = render_cv(blocks, title="CV")
         assert pdf.startswith(b"%PDF")
         assert cv_document(blocks).has_tables_or_images is False
+
+    @pytest.mark.parametrize(
+        ("line", "split"),
+        [
+            ("AIO June - August 2026", ("AIO", "June - August 2026")),
+            (
+                "Machine Learning Engineer, Nimbus Labs, Lahore Jul 2023 - Present",
+                ("Machine Learning Engineer, Nimbus Labs, Lahore", "Jul 2023 - Present"),
+            ),
+            (
+                "AWS Certified Cloud Practitioner, Amazon Web Services, 2024",
+                ("AWS Certified Cloud Practitioner, Amazon Web Services", "2024"),
+            ),
+            ("ResumeRadar: NLP ranking", ("ResumeRadar: NLP ranking", "")),
+            ("GPT-4 evaluation in 2024 for 3 teams", ("GPT-4 evaluation in 2024 for 3 teams", "")),
+        ],
+    )
+    def test_dates_split_off_the_end_of_an_entry_line(
+        self, line: str, split: tuple[str, str]
+    ) -> None:
+        assert split_dates(line) == split
 
     @pytest.mark.parametrize("template", CV_TEMPLATES)
     def test_every_template_passes_its_format_checks(self, template: CvTemplate) -> None:

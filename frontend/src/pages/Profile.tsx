@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { api, setCsrfToken, type Profile as ProfileData } from '../lib/api'
 import { meKey, useMe } from '../lib/session'
@@ -24,6 +24,19 @@ export default function Profile() {
   const toast = useToast()
   const navigate = useNavigate()
   const [confirming, setConfirming] = useState(false)
+  const [params, setParams] = useSearchParams()
+  // Arriving from the verification link: say how it went once, then drop the flag from the URL.
+  useEffect(() => {
+    const result = params.get('verified')
+    if (!result) return
+    if (result === '1') {
+      toast('Email confirmed. Digests and sends are on.')
+      void qc.invalidateQueries({ queryKey: meKey })
+    } else {
+      toast('That link has expired or was already used. Ask for a new one.', 'error')
+    }
+    setParams({}, { replace: true })
+  }, [params, setParams, qc, toast])
   const profile = useQuery({ queryKey: ['profile'], queryFn: () => api<ProfileData>('/api/profile') })
 
   const remove = useMutation({
@@ -71,7 +84,14 @@ export default function Profile() {
           <PanelTitle kicker="Account">Who you are</PanelTitle>
           <dl>
             <Row label="Name">{p.name || missing}</Row>
-            <Row label="Email">{p.email}</Row>
+            <Row label="Email">
+              {p.email}{' '}
+              <span
+                className={`ml-1 rounded-full border-2 border-ink px-2 py-0.5 font-mono text-[11px] ${me.user.email_verified ? 'bg-buttercup' : 'bg-signal'}`}
+              >
+                {me.user.email_verified ? 'verified' : 'not verified'}
+              </span>
+            </Row>
             <Row label="Sign-in">{signIn.join(' and ') || missing}</Row>
             <Row label="Phone">{p.phone || missing}</Row>
             <Row label="Location">{p.location?.label || missing}</Row>

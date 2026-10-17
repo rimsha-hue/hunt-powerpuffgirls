@@ -56,6 +56,29 @@ because the local Python is 3.13 and the project needs 3.12 (see "How to run che
   every page. Further polish ideas: consistent empty states, card spacing on Jobs/Tailor, a
   screenshot-driven pass with the owner.
 
+## Email verification (about 09:45 PKT, branch `feat/email-verification`)
+
+- PR #19 merged. Neon at **0014** (`users.email_verified_at`, `email_tokens`).
+- Signup emails a single-use link (`/api/auth/verify?t=`, hash stored, `EMAIL_VERIFY_HOURS`);
+  Google sign-in counts as verified; linking Google to an unverified password account removes
+  that password and its sessions (closes the pre-takeover finding). Sign-in alerts go to verified
+  addresses (`LOGIN_ALERTS`). No digest and no application send until verified (closes the
+  "anyone can send from the owner's Gmail" finding for unverified accounts; the demo account stays
+  unverified, so it can't send). UI: banner with "Send a new link", Profile shows the status.
+- Tests: `conftest.signup()` follows the link from a fake outbox (pass `verify=False` to stay
+  unverified).
+- Still open from the audit: per-user daily send limit, double-send race in `composer.send`.
+
+## CV layouts and media (about 10:15 PKT, same branch)
+
+- CV templates redone after common ATS-friendly designs: `classic` = Harvard (Tinos serif,
+  centered name, ruled headings, italic dates right), `compact` = "Jake's resume" (sans, tight),
+  `modern` (accent name and heading bars). Entry dates sit flush right (`cv_format.split_dates`),
+  skills lines bold their label, certifications/awards list dates on the right. Tinos (OFL) is in
+  `app/templates/fonts` with its licence note.
+- Videos re-encoded with ffmpeg (faststart, no audio, 960px, CRF 30): login uses the owner's new
+  `assets/login-video-2.mp4` (3.8 MB to 0.56 MB) with a regenerated poster; intro 411 to 312 KB.
+
 ## To do, in priority order
 
 1. **Merge PR #17** after CI.

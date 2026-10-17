@@ -4,6 +4,7 @@ A CV only counts as well formatted when its own text survives extraction: every 
 the name first, sections in order, and short enough to be read.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, get_args
@@ -24,6 +25,24 @@ class FormatCheck:
     name: Literal["readable", "pages", "name_first", "section_order"]
     passed: bool
     detail: str
+
+
+_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
+_YEAR = r"(?:19|20)\d{2}"
+_POINT = rf"(?:{_MONTH}\s*(?:{_YEAR})?|{_YEAR})"  # "June", "June 2024", "2024"
+_RANGE = rf"{_POINT}\s*(?:-|–|—|to)\s*(?:{_POINT}|present|current|now)"
+_SINGLE = rf"(?:{_MONTH}\s*)?{_YEAR}"
+# Dates at the end of an entry's title line: "June - August 2026", "2023 - Present", "May 2024".
+_TRAILING_DATES = re.compile(rf"[\s,|·-]*\(?((?:{_RANGE})|(?:{_SINGLE}))\)?\s*$", re.I)
+
+
+def split_dates(text: str) -> tuple[str, str]:
+    """(title, dates) for an entry line, so a template can set the dates flush right:
+    "AIO June - August 2026" is ("AIO", "June - August 2026"). No dates: (text, "")."""
+    match = _TRAILING_DATES.search(text)
+    if not match or match.start() == 0:
+        return text, ""
+    return text[: match.start()].rstrip(" ,|·-("), match.group(1)
 
 
 def _words(text: str) -> set[str]:

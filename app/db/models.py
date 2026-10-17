@@ -67,6 +67,13 @@ class User(Base):
     github_username: Mapped[str | None] = mapped_column(String(100))
     portfolio_url: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    # When the user proved they own the email (a link from it, or Google). Nothing is emailed on
+    # the user's behalf, and no digest goes out, before this is set.
+    email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+    @property
+    def email_verified(self) -> bool:
+        return self.email_verified_at is not None
 
     @property
     def google_linked(self) -> bool:
@@ -230,6 +237,21 @@ class ApplyToken(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = _user_fk()
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class EmailToken(Base):
+    """A link sent to the user's inbox (email verification): only the hash is stored; single use,
+    expiring."""
+
+    __tablename__ = "email_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = _user_fk()
+    purpose: Mapped[str] = mapped_column(String(20))  # "verify_email"
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
