@@ -1,4 +1,5 @@
-"""Deterministic normalizers for text, quantities (numbers with units), degrees and employers.
+"""Deterministic normalizers for text, quantities (numbers with units), degrees, schools and
+employers.
 
 These decide whether two claims say the same thing, so they are strict on purpose:
 "30%" equals "30 percent" but never "35%".
@@ -399,3 +400,55 @@ def normalize_org(name: str) -> str:
         previous = name
         name = _LEGAL_SUFFIX_RE.sub("", name).strip(" ,.-")
     return normalize_text(name)
+
+
+# ---- Schools ---------------------------------------------------------------------------------
+#
+# A school is named by a capitalised phrase around an institution noun: "National University of
+# Sciences and Technology", "Roots College", "School of Electrical Engineering and Computer
+# Science". An acronym in brackets right after the name ("(NUST)") is the same school.
+
+_INSTITUTION = (
+    r"Universit(?:y|ies)|Colleges?|Institutes?|Schools?|Academy|Polytechnic|Conservatory|Seminary"
+)
+_NAME_WORD = r"[A-Z][\w&'.-]*"
+# Small words a name can hold between capitalised words. "at" and "in" are left out, so
+# "Pursuing BS at Lahore University" starts the name at "Lahore".
+_NAME_JOIN = r"(?:of|the|for|and|&)"
+_SCHOOL_RE = re.compile(
+    rf"(?:{_NAME_WORD}\s+(?:{_NAME_JOIN}\s+)*)*"
+    rf"(?:{_INSTITUTION})\b"
+    rf"(?:\s+(?:{_NAME_JOIN}\s+)*{_NAME_WORD})*"
+)
+_INSTITUTION_WORD_RE = re.compile(rf"\b(?:{_INSTITUTION})\b")
+_ACRONYM_RE = re.compile(r"\s*\(([A-Z][A-Za-z&-]{1,11})\)")
+
+
+@dataclass(frozen=True)
+class School:
+    surface: str
+    start: int
+    end: int
+
+    @property
+    def key(self) -> str:
+        return normalize_org(self.surface)
+
+
+def find_schools(text: str) -> list[School]:
+    """Schools named in the text, each acronym in brackets as a school of its own."""
+    found: list[School] = []
+    for m in _SCHOOL_RE.finditer(text):
+        name = m.group(0)
+        noun = _INSTITUTION_WORD_RE.search(name)
+        if noun is None:
+            continue
+        # "BS Data Science National University" without a comma: the name starts after the degree.
+        cut = max((d.end for d in find_degrees(name) if d.end <= noun.start()), default=0)
+        cut += len(name[cut:]) - len(name[cut:].lstrip(" ,"))
+        start = m.start() + cut
+        found.append(School(text[start : m.end()], start, m.end()))
+        acronym = _ACRONYM_RE.match(text, m.end())
+        if acronym:
+            found.append(School(acronym.group(1), acronym.start(1), acronym.end(1)))
+    return found

@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -106,8 +107,16 @@ class ResumeLine(Base):
 class Evidence(Base):
     __tablename__ = "evidence"
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "type", "normalized_value", "source", name="uq_evidence_fact_source"
+        # One row per fact, source and entry: the same role at two companies is two facts. An
+        # expression, because a unique constraint treats every NULL entry as different.
+        Index(
+            "uq_evidence_fact_source_entry",
+            "user_id",
+            "type",
+            "normalized_value",
+            "source",
+            text("coalesce(context, '')"),
+            unique=True,
         ),
         Index("ix_evidence_user_type_value", "user_id", "type", "normalized_value"),
     )
@@ -269,6 +278,11 @@ class Claim(Base):
         ForeignKey("resume_lines.id", ondelete="SET NULL")
     )
     similarity: Mapped[float | None] = mapped_column(Float)
+    # The role or degree an organisation claim is stated with ("ML Engineer" in "ML Engineer at
+    # Acme"). The pair is the claim: confirming it records both under one ledger entry.
+    pair_type: Mapped[str | None] = mapped_column(String(20))
+    pair_value: Mapped[str | None] = mapped_column(String(500))
+    pair_text: Mapped[str | None] = mapped_column(String(500))
     # confirmed | edited | removed | false, once the user answered a Needs-you claim
     user_decision: Mapped[str | None] = mapped_column(String(12))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

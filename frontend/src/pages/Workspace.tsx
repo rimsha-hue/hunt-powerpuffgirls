@@ -91,6 +91,9 @@ function ClaimMark({ claim, text, fresh }: { claim: Claim; text: string; fresh: 
         <span className="mb-1 block font-mono font-medium uppercase tracking-wider">
           {badge.label} · {claim.type}
         </span>
+        {claim.paired_with && (
+          <span className="mb-1 block">Checked together with “{claim.paired_with}”.</span>
+        )}
         {claim.source ? (
           <>
             <span className="block font-semibold">{claim.source.label}</span>

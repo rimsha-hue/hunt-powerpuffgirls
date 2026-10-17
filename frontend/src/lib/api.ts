@@ -118,6 +118,7 @@ export type FactType =
   | 'metric'
   | 'employer'
   | 'degree'
+  | 'school'
   | 'certification'
   | 'project'
   | 'role'
@@ -296,6 +297,8 @@ export interface Claim {
   similarity: number | null
   user_decision: 'confirmed' | 'edited' | 'removed' | 'false' | null
   source: { label: string; detail: string | null; url: string | null } | null
+  /** The role or degree an organisation claim is stated with; the pair is what gets checked. */
+  paired_with: string | null
 }
 
 export interface AttachmentItem {

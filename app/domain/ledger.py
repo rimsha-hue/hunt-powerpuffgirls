@@ -15,10 +15,12 @@ from app.domain.normalize import (
     degree_keys,
     find_degrees,
     find_quantities,
+    find_schools,
     normalize_org,
     normalize_text,
 )
-from app.domain.resume import ParsedLine, heading_section
+from app.domain.resume import DATE_RANGE_RE, ParsedLine, heading_section
+from app.domain.roles import HEAD_NOUNS
 from app.domain.taxonomy import Taxonomy
 
 FactType = Literal[
@@ -26,6 +28,7 @@ FactType = Literal[
     "metric",
     "employer",
     "degree",
+    "school",
     "certification",
     "project",
     "role",
@@ -47,6 +50,10 @@ METRIC_SECTIONS = frozenset(
 # Sections made of entries: a short unbulleted title line (role, company, project name) followed
 # by the lines that describe it. A metric is reported with the entry it belongs to.
 ENTRY_SECTIONS = frozenset({"experience", "projects", "awards", "activities", "publications"})
+# Facts that are true only together with their entry: a role was held at one employer, a degree
+# was earned at one school, a result was reached in one project. They keep their entry's label,
+# and the same value in two entries is two facts. Skills and certifications stand alone.
+ENTRY_BOUND_TYPES = frozenset({"metric", "role", "employer", "degree", "school"})
 TITLE_MAX_WORDS = 14
 _CLAUSE_SPLIT = re.compile(r";|\s[|•]\s|,\s(?=[A-Za-z$€£]|\d)|\.\s(?=[A-Z])")
 _DATE_RE = re.compile(
@@ -74,35 +81,107 @@ def strip_dates(text: str) -> str:
     return re.sub(r"\s+", " ", out).strip(" ,|–—-")
 
 
-def entry_contexts(lines: Iterable[ParsedLine]) -> dict[int, str | None]:
-    """For each line, the title of the entry it sits under (up to two title lines, dates removed)."""
+def _label(titles: Iterable[str]) -> str | None:
+    joined = " · ".join(t for t in (strip_dates(t) for t in titles) if t)
+    return joined[:MAX_CONTEXT_LENGTH] or None
+
+
+def is_entry_title(line: ParsedLine) -> bool:
+    """A short unbulleted line that names an entry (role, company, project), not one describing it."""
+    return (
+        line.section in ENTRY_SECTIONS
+        and not line.bulleted
+        and len(line.text.split()) <= TITLE_MAX_WORDS
+        # A line stating a result ("reached 88% accuracy") describes an entry; it isn't one.
+        and not any(q.unit not in {"", "year-date"} for q in find_quantities(line.text))
+    )
+
+
+def _work_entries(lines: list[ParsedLine]) -> dict[int, str | None]:
+    """Entries in experience, projects and similar sections: a run of short unbulleted title lines
+    (role, company, project name), then the lines describing it. Two title lines in a row are one
+    entry ("AI Intern" over "AIO June - August 2026"); a longer run is read two lines at a time,
+    because a title with no bullets is an entry of its own."""
     contexts: dict[int, str | None] = {}
-    titles: list[str] = []
-    previous_was_title = False
-    current_section = ""
+    titles: list[ParsedLine] = []  # the current entry's run of title lines
+    in_run = False
     for line in lines:
-        if line.section != current_section or heading_section(line.text):
-            titles, previous_was_title, current_section = [], False, line.section
-            contexts[line.line_no] = None
-            continue
         if not line.bulleted and line.text.endswith(":") and len(line.text.split()) <= 4:
             contexts[line.line_no] = None  # a label such as "Key Contributions:" is not an entry
             continue
-        is_title = (
-            line.section in ENTRY_SECTIONS
-            and not line.bulleted
-            and len(line.text.split()) <= TITLE_MAX_WORDS
-            # A line stating a result ("reached 88% accuracy") describes an entry; it isn't one.
-            and not any(q.unit not in {"", "year-date"} for q in find_quantities(line.text))
-        )
-        if is_title:
-            titles = [*titles[-1:], line.text] if previous_was_title else [line.text]
-            previous_was_title = True
+        if is_entry_title(line):
+            titles = [*titles, line] if in_run else [line]
+            in_run = True
+            label = _label(t.text for t in titles[-2:])
+            contexts[line.line_no] = label
+            if len(titles) == 2:
+                contexts[titles[0].line_no] = label
+            continue
+        in_run = False
+        contexts[line.line_no] = _label(t.text for t in titles[-2:]) if titles else None
+    return contexts
+
+
+def _education_entries(lines: list[ParsedLine]) -> dict[int, str | None]:
+    """Entries in Education: one per school attended. A line naming a degree or a school starts a
+    new entry when the current one already has one, whichever order a resume writes them in
+    ("NUST" then "BS Data Science", or "BS Data Science, NUST"). A second date range does the same,
+    for schools no pattern recognises. Other lines (GPA, coursework) belong to the entry above."""
+    entries: list[list[ParsedLine]] = []
+    kinds: set[str] = set()
+    for line in lines:
+        found = set()
+        if not line.bulleted:
+            found |= {"degree"} if find_degrees(line.text) else set()
+            found |= {"school"} if find_schools(line.text) else set()
+            found |= {"dates"} if DATE_RANGE_RE.search(line.text) else set()
+        if not entries or found & kinds:
+            entries.append([])
+            kinds = set()
+        entries[-1].append(line)
+        kinds |= found
+    contexts: dict[int, str | None] = {}
+    for entry in entries:
+        named = [ln.text for ln in entry if not ln.bulleted and _names_entry(ln.text)]
+        label = _label(named[:2])
+        contexts.update({ln.line_no: label for ln in entry})
+    return contexts
+
+
+def _names_entry(text: str) -> bool:
+    """A line that says what the entry is (school, degree), not a detail such as a GPA."""
+    return not any(q.unit.startswith("gpa/") for q in find_quantities(text)) and bool(
+        strip_dates(text)
+    )
+
+
+def entry_contexts(lines: Iterable[ParsedLine]) -> dict[int, str | None]:
+    """For each line, the label of the entry it belongs to (up to two title lines, dates removed).
+
+    Facts sharing a label share an entry: the role and employer of one job, the degree and school
+    of one education entry, the results of one project."""
+    contexts: dict[int, str | None] = {}
+    section: list[ParsedLine] = []
+
+    def close() -> None:
+        if not section:
+            return
+        if section[0].section == "education":
+            contexts.update(_education_entries(section))
+        elif section[0].section in ENTRY_SECTIONS:
+            contexts.update(_work_entries(section))
+        else:
+            contexts.update({ln.line_no: None for ln in section})
+        section.clear()
+
+    for line in lines:
+        if heading_section(line.text) or (section and line.section != section[0].section):
+            close()
+        if heading_section(line.text):
             contexts[line.line_no] = None
             continue
-        previous_was_title = False
-        joined = " · ".join(t for t in (strip_dates(t) for t in titles) if t)
-        contexts[line.line_no] = joined[:MAX_CONTEXT_LENGTH] or None
+        section.append(line)
+    close()
     return contexts
 
 
@@ -131,7 +210,7 @@ def normalize_fact(fact_type: FactType, claim_text: str, taxonomy: Taxonomy) -> 
                 return None
             # Prefer the most specific reading (one that names a field).
             return max(degrees, key=lambda d: bool(d.field)).key
-        case "employer":
+        case "employer" | "school":
             return normalize_org(claim_text) or None
         case _:
             return normalize_text(claim_text) or None
@@ -198,6 +277,12 @@ def degree_counts_as_evidence(line: ParsedLine) -> bool:
     return line.section == "education" and not _ASPIRATION_RE.search(line.text)
 
 
+def school_counts_as_evidence(line: ParsedLine) -> bool:
+    """A school is one the person attended only on an Education line, by the same rule as a
+    degree. Elsewhere it is a course issuer, a client or a place the person spoke at."""
+    return degree_counts_as_evidence(line)
+
+
 TITLED_SECTIONS: dict[str, FactType] = {
     "certifications": "certification",
     "awards": "award",
@@ -209,9 +294,11 @@ _LINK_MARK = re.compile(r"\[(?:link|pdf|url|doi)\]", re.I)
 # issuer ("Crash Course in Data Science, Johns Hopkins University"); reading that as an employer
 # would let the Verifier "prove" a job the person never had.
 WORK_SECTIONS = frozenset({"experience", "activities", "summary"})
+# Words that make a line about learning, not working. Named by what the line describes, not by
+# provider, so a new course platform needs no change here.
 _LEARNING_RE = re.compile(
-    r"\b(?:certif\w*|courses?|coursera|udemy|edx|udacity|specialization|specialisation|bootcamp|"
-    r"workshop|training|mooc|nanodegree|credential|badge|issued|completed)\b",
+    r"\b(?:certif\w*|courses?|coursework|speciali[sz]ation|bootcamp|workshop|training|mooc|"
+    r"nanodegree|credential|badge|issued|completed|enrolled)\b",
     re.I,
 )
 
@@ -243,7 +330,7 @@ def _metric_facts(line: ParsedLine, context: str | None) -> list[Fact]:
         if q.unit in {"", "year-date"}:
             continue  # bare numbers are too ambiguous to stand alone as a metric
         if q.unit.startswith("gpa/"):
-            facts.append(Fact(q.surface, "metric", q.key, line.line_no))
+            facts.append(Fact(q.surface, "metric", q.key, line.line_no, context))
             continue
         if line.section not in METRIC_SECTIONS or is_version_number(line.text, q):
             continue
@@ -262,18 +349,26 @@ def _metric_facts(line: ParsedLine, context: str | None) -> list[Fact]:
 
 
 def extract_facts_by_code(lines: Iterable[ParsedLine], taxonomy: Taxonomy) -> list[Fact]:
-    """Deterministic pass: skills, degrees, certifications and metrics. Works without any LLM."""
+    """Deterministic pass: skills, degrees, schools, titled facts and metrics. Works without any
+    LLM. Degrees, schools and metrics carry the entry they belong to."""
     lines = list(lines)
     contexts = entry_contexts(lines)
     facts: list[Fact] = []
     for line in lines:
         if line.section == "header" or heading_section(line.text):
             continue
+        entry = contexts.get(line.line_no)
         for match in taxonomy.find(line.text):
             facts.append(Fact(match.canonical, "skill", match.canonical.lower(), line.line_no))
         if degree_counts_as_evidence(line):
             for degree in find_degrees(line.text):
-                facts.append(Fact(degree.surface.strip(" ,"), "degree", degree.key, line.line_no))
+                facts.append(
+                    Fact(degree.surface.strip(" ,"), "degree", degree.key, line.line_no, entry)
+                )
+        if school_counts_as_evidence(line):
+            for school in find_schools(line.text):
+                if school.key:
+                    facts.append(Fact(school.surface, "school", school.key, line.line_no, entry))
         titled = TITLED_SECTIONS.get(line.section)
         # Certifications and awards are one per line; a publication is its title line, and the
         # bullets under it describe it.
@@ -283,7 +378,7 @@ def extract_facts_by_code(lines: Iterable[ParsedLine], taxonomy: Taxonomy) -> li
             name = re.sub(r"\s+", " ", _LINK_MARK.sub("", text)).strip(" ,;|")
             if name and len(name) <= MAX_CLAIM_LENGTH:
                 facts.append(Fact(name, titled, normalize_text(name), line.line_no))
-        facts.extend(_metric_facts(line, contexts.get(line.line_no)))
+        facts.extend(_metric_facts(line, entry))
     return dedupe(facts)
 
 
@@ -304,6 +399,7 @@ def accept_proposed_facts(
             or normalized is None
             or not is_supported_by_line(fact_type, claim_text, line.text, taxonomy)
             or (fact_type == "degree" and not degree_counts_as_evidence(line))
+            or (fact_type == "school" and not school_counts_as_evidence(line))
             or (fact_type in ("employer", "role") and not work_fact_counts_as_evidence(line))
             # A metric needs a measured result; "k=4" or a bare count is not one.
             or (
@@ -313,16 +409,17 @@ def accept_proposed_facts(
         ):
             rejected += 1
             continue
-        context = contexts.get(line_no) if fact_type == "metric" else None
+        context = contexts.get(line_no) if fact_type in ENTRY_BOUND_TYPES else None
         kept.append(Fact(claim_text.strip(), fact_type, normalized, line_no, context))
     return kept, rejected
 
 
 def dedupe(facts: Iterable[Fact]) -> list[Fact]:
-    seen: set[tuple[str, str]] = set()
+    """One fact per (type, value, entry): "Software Engineer" at two companies is two facts."""
+    seen: set[tuple[str, str, str | None]] = set()
     unique: list[Fact] = []
     for fact in facts:
-        key = (fact.type, fact.normalized_value)
+        key = (fact.type, fact.normalized_value, fact.context)
         if key not in seen:
             seen.add(key)
             unique.append(fact)
@@ -367,7 +464,7 @@ _LEVEL_WORDS = frozenset(
     ]
 )
 TEXT_FACT_TYPES = frozenset(
-    {"employer", "role", "certification", "project", "publication", "award", "other"}
+    {"employer", "school", "role", "certification", "project", "publication", "award", "other"}
 )
 
 
@@ -379,8 +476,6 @@ def fact_words(text: str, taxonomy: Taxonomy) -> frozenset[str]:
 
 
 def _meaning_words(taxonomy: Taxonomy) -> frozenset[str]:
-    from app.domain.roles import HEAD_NOUNS
-
     skill_words = {w for name in taxonomy.skills for w in content_tokens(name)}
     return frozenset(skill_words | HEAD_NOUNS | _LEVEL_WORDS)
 
@@ -409,8 +504,8 @@ def reconcile(
 
     `existing` holds (type, normalized_value, claim_text) already in the ledger from other
     sources. A new fact matching one reuses its normalized value, so both sources show on one
-    ledger row. Within the batch, a later duplicate is dropped; for metrics the reading that
-    holds more numbers wins ("88%" folds into "88% ... 25 labels").
+    ledger row. Within the batch, a later duplicate in the same entry is dropped; for metrics the
+    reading that holds more numbers wins ("88%" folds into "88% ... 25 labels").
     """
     meaning = _meaning_words(taxonomy)
     known = [(t, v, fact_words(c, taxonomy)) for t, v, c in existing]
@@ -437,8 +532,13 @@ def reconcile(
                 fact = replace(fact, normalized_value=v)
                 break
         for index, (other, other_words) in enumerate(kept):
-            if other.type == fact.type and same(
-                fact.type, fact.normalized_value, words, other.normalized_value, other_words
+            # Within one document, a fact repeated in another entry is another fact.
+            if (
+                other.type == fact.type
+                and other.context == fact.context
+                and same(
+                    fact.type, fact.normalized_value, words, other.normalized_value, other_words
+                )
             ):
                 richer = fact.type == "metric" and len(_metric_keys(fact.normalized_value)) > len(
                     _metric_keys(other.normalized_value)

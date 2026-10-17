@@ -182,14 +182,13 @@ async def verify_prose(
     text = plain(text)
     parts = [sentence for _, sentence in sentences(text)]
     blocks = prose_blocks(text, document, await _closest_lines(parts, lines, similarity))
-    ledger, employers = await verifier.load_ledger(db, application.user_id)
+    ledger = await verifier.load_ledger(db, application.user_id)
     checked = await verifier.verify(
         blocks,
         ignore=ignore,
         context=context,
         subject=subject,
         ledger=ledger,
-        employers=employers,
         taxonomy=taxonomy,
         llm=llm,
         similarity=similarity,

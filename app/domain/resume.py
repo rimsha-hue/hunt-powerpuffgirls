@@ -124,7 +124,7 @@ _SUFFIXES = (
 _TERMINAL = (".", ";", "!", "?")
 _MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
 # "Jun 2022 - Aug 2022", "2019 - 2023", "Jul 2023 - Present": the dates of a new entry.
-_DATE_RANGE_RE = re.compile(
+DATE_RANGE_RE = re.compile(
     rf"\b(?:{_MONTH}\s*)?(?:19|20)\d{{2}}\s*(?:-|–|—|to)\s*"
     rf"(?:(?:{_MONTH}\s*)?(?:19|20)\d{{2}}|present|current|now)\b",
     re.I,
@@ -235,7 +235,7 @@ def _continues(prev: _Logical, raw: str, text: str, section: str) -> bool:
         return False
     if prev.text.endswith("-") or text[:1].islower():
         return True
-    if _DATE_RANGE_RE.search(text):
+    if DATE_RANGE_RE.search(text):
         return False  # an entry title with its dates starts a new entry, even after a long bullet
     if prev.text.endswith((",", "&", "(", "/", "+")):
         return True

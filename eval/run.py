@@ -33,9 +33,9 @@ from typing import Literal, Self, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.config import Settings
-from app.domain.claims import Ledger
+from app.domain.claims import Ledger, LedgerRow
 from app.domain.cv import Block, SourceLine, base_blocks, plain
-from app.domain.ledger import FactType, accept_proposed_facts, dedupe, extract_facts_by_code
+from app.domain.ledger import FactType, accept_proposed_facts, extract_facts_by_code, reconcile
 from app.domain.resume import split_resume
 from app.domain.taxonomy import Taxonomy, default_taxonomy
 from app.integrations.embeddings import EmbeddingSimilarity, LexicalSimilarity, Similarity
@@ -112,7 +112,6 @@ class Baseline(BaseModel):
 class World:
     bullets: Mapping[int, Block]  # tailorable resume lines by line number
     ledger: Ledger
-    employers: Sequence[str]
     taxonomy: Taxonomy
 
 
@@ -198,13 +197,13 @@ def build_world(taxonomy: Taxonomy, spec_path: Path = LEDGER) -> World:
     accepted, rejected = accept_proposed_facts(proposals, by_no, taxonomy)
     if rejected:
         raise ValueError(f"{rejected} proposed ledger facts are not supported by their lines")
-    facts = dedupe([*extract_facts_by_code(lines, taxonomy), *accepted])
-    employers = sorted({f.claim_text for f in facts if f.type == "employer"}, key=len, reverse=True)
+    facts = reconcile([*extract_facts_by_code(lines, taxonomy), *accepted], [], taxonomy)
     source = [SourceLine(ln.line_no, ln.line_no, ln.section, ln.text, ln.bulleted) for ln in lines]
     return World(
         bullets={b.line_no: b for b in base_blocks(source) if b.kind == "bullet"},
-        ledger=Ledger.build((f.type, f.normalized_value) for f in facts),
-        employers=employers,
+        ledger=Ledger.build(
+            LedgerRow(f.type, f.normalized_value, f.claim_text, f.context) for f in facts
+        ),
         taxonomy=taxonomy,
     )
 
@@ -238,7 +237,6 @@ async def check(case: Case, world: World, similarity: Similarity, threshold: flo
     result = await verify(
         [block],
         ledger=world.ledger,
-        employers=world.employers,
         taxonomy=world.taxonomy,
         llm=ReplayedClaims(case.claims),
         similarity=similarity,

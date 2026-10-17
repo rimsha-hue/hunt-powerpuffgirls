@@ -149,11 +149,10 @@ async def prepare(
         llm=llm,
         taxonomy=taxonomy,
     )
-    ledger, employers = await load_ledger(db, user.id)
+    ledger = await load_ledger(db, user.id)
     checked = await verifier.verify(
         tailored.blocks,
         ledger=ledger,
-        employers=employers,
         taxonomy=taxonomy,
         llm=llm,
         similarity=similarity,
@@ -249,7 +248,7 @@ async def decide(
     elif action == "false":
         await verifier.mark_false(db, blocks, claim, claims, now=now)
     else:
-        ledger, _ = await load_ledger(db, claim.user_id)
+        ledger = await load_ledger(db, claim.user_id)
         await verifier.edit(
             blocks,
             claim,
@@ -279,7 +278,7 @@ async def decide(
         sync_status(application, document, claims)
     application.updated_at = now
     if document == "cv":
-        ledger, _ = await load_ledger(db, application.user_id)
+        ledger = await load_ledger(db, application.user_id)
         lines = await source_lines(db, application.user_id)
         result = ats_after(job, blocks, lines, ledger, taxonomy)
         application.ats_after = result.score

@@ -148,6 +148,7 @@ async def application_out(db: Db, application: Application, job: Job) -> Applica
                 similarity=c.similarity,
                 user_decision=c.user_decision,
                 source=sources.get(c.id),
+                paired_with=c.pair_text,
             )
             for c in claims
         ],

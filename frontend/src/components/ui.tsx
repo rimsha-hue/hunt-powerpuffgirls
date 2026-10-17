@@ -162,6 +162,7 @@ const TYPE_STYLES: Record<FactType, string> = {
   employer: 'bg-violet text-card',
   role: 'bg-violet text-card',
   degree: 'bg-buttercup',
+  school: 'bg-buttercup',
   certification: 'bg-buttercup',
   project: 'bg-blush',
   personal: 'bg-blush',

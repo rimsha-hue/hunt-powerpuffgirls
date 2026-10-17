@@ -283,6 +283,8 @@ class ClaimOut(BaseModel):
     similarity: float | None
     user_decision: str | None
     source: ClaimSourceOut | None
+    # The role or degree an organisation claim is stated with; the pair is what gets checked.
+    paired_with: str | None = None
 
 
 class AtsAfterOut(BaseModel):

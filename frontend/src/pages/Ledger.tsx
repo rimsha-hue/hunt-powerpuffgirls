@@ -13,6 +13,7 @@ const TYPES: Array<FactType | 'all'> = [
   'role',
   'employer',
   'degree',
+  'school',
   'certification',
   'project',
   'publication',

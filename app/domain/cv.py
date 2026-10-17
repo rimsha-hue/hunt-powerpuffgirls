@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
 from app.domain.ats import CvDocument
-from app.domain.ledger import ENTRY_SECTIONS, entry_contexts
+from app.domain.ledger import ENTRY_SECTIONS, entry_contexts, is_entry_title
 from app.domain.resume import ParsedLine, heading_section
 
 BlockKind = Literal["heading", "title", "bullet", "text"]
@@ -79,6 +79,7 @@ def base_blocks(lines: Sequence[SourceLine]) -> list[Block]:
     """The resume as blocks, in its own order, before any tailoring."""
     parsed = [ParsedLine(ln.line_no, ln.section, ln.text, ln.bulleted) for ln in lines]
     contexts = entry_contexts(parsed)
+    parsed_by_no = {ln.line_no: ln for ln in parsed}
     blocks: list[Block] = []
     entry = 0
     for line in lines:
@@ -87,8 +88,12 @@ def base_blocks(lines: Sequence[SourceLine]) -> list[Block]:
             kind: BlockKind = "heading"
         elif line.section not in TAILORABLE_SECTIONS:
             kind = "text"
-        elif line.section == "summary" or line.bulleted or contexts.get(line.line_no):
-            kind = "bullet"
+        elif (
+            line.section == "summary"
+            or line.bulleted
+            or (contexts.get(line.line_no) and not is_entry_title(parsed_by_no[line.line_no]))
+        ):
+            kind = "bullet"  # a line describing an entry
         else:
             # An entry title (role, company, project name) opens a new entry.
             entry += 1 if line.section in ENTRY_SECTIONS else 0
