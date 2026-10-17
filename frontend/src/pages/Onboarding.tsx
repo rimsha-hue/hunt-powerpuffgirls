@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, FolderGit2, Sparkles, Target, UploadCloud } from 'lucide-react'
+import { ArrowRight, FileCheck, FolderGit2, LoaderCircle, Sparkles, Target, UploadCloud } from 'lucide-react'
 import { useState, type ChangeEvent, type DragEvent } from 'react'
 import { Link } from 'react-router'
 import { ChipInput, type Chip } from '../components/ChipInput'
@@ -42,6 +42,9 @@ function StepNumber({ n, done }: { n: number; done: boolean }) {
 function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; done: boolean }) {
   const [dragging, setDragging] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+  // The file being read, then the one that was read: the drop zone shows which, not its prompt.
+  const [chosen, setChosen] = useState<string | null>(null)
+  const [uploaded, setUploaded] = useState<{ name: string; facts: number } | null>(null)
   const qc = useQueryClient()
   // The server publishes its limit; it also enforces it, so this check only saves a round trip.
   const maxMb = usePublicConfig().data?.max_upload_mb
@@ -53,7 +56,9 @@ function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; 
       body.append('file', file)
       return api<ResumeIngestion>('/api/resume', { method: 'POST', body })
     },
-    onSuccess: (result) => {
+    onMutate: (file) => setChosen(file ? file.name : null),
+    onSuccess: (result, file) => {
+      setUploaded({ name: file ? file.name : 'Sample resume', facts: result.facts.length })
       onFacts(result)
       void qc.invalidateQueries({ queryKey: meKey })
       void qc.invalidateQueries({ queryKey: ['profile'] })
@@ -86,14 +91,39 @@ function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; 
           setDragging(false)
           pick(e.dataTransfer.files[0])
         }}
+        aria-busy={upload.isPending}
         className={cx(
-          'flex cursor-pointer flex-col items-center gap-2 rounded-xl border-3 border-dashed border-ink p-6 text-center',
-          dragging ? 'bg-blush' : 'bg-white hover:bg-blush/60',
+          'flex flex-col items-center gap-2 rounded-xl border-3 border-dashed border-ink p-6 text-center',
+          upload.isPending
+            ? 'cursor-wait bg-bubbles/30'
+            : uploaded
+              ? 'cursor-pointer bg-buttercup/30 hover:bg-buttercup/50'
+              : dragging
+                ? 'cursor-pointer bg-blush'
+                : 'cursor-pointer bg-white hover:bg-blush/60',
         )}
       >
-        <UploadCloud className="size-8" aria-hidden />
-        <span className="font-semibold">Drop your resume here, or click to choose</span>
-        <span className="font-mono text-xs">PDF or DOCX{maxMb ? ` · up to ${maxMb} MB` : ''}</span>
+        {upload.isPending ? (
+          <>
+            <LoaderCircle className="size-8 motion-safe:animate-spin" aria-hidden />
+            <span className="font-semibold">Reading {chosen ?? 'the sample resume'}…</span>
+            <span className="text-sm">Finding every fact and its source line. This takes a few seconds.</span>
+          </>
+        ) : uploaded ? (
+          <>
+            <FileCheck className="size-8" aria-hidden />
+            <span className="font-semibold">
+              {uploaded.name} · {uploaded.facts} {uploaded.facts === 1 ? 'fact' : 'facts'} proven
+            </span>
+            <span className="text-sm underline">Upload a new version</span>
+          </>
+        ) : (
+          <>
+            <UploadCloud className="size-8" aria-hidden />
+            <span className="font-semibold">Drop your resume here, or click to choose</span>
+            <span className="font-mono text-xs">PDF or DOCX{maxMb ? ` · up to ${maxMb} MB` : ''}</span>
+          </>
+        )}
         <input
           type="file"
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -110,7 +140,6 @@ function ResumeStep({ onFacts, done }: { onFacts: (r: ResumeIngestion) => void; 
           <Sparkles className="size-4" aria-hidden />
           Try with sample data
         </Button>
-        {upload.isPending && <span className="font-mono text-sm">Reading and proving facts…</span>}
       </div>
       {(localError ?? upload.error?.message) && (
         <div className="mt-3">
@@ -355,9 +384,15 @@ export default function Onboarding() {
       <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,26rem)]">
         <div className="flex flex-col gap-6">
           <ResumeStep onFacts={onResume} done={data.resume_version > 0} />
-          {/* Remount after a resume upload so links found in the resume header pre-fill the fields. */}
-          <GitHubStep key={data.resume_version} profile={data} onFacts={(facts) => setFresh([...facts, ...live])} />
-          <TargetsStep key={data.resume_version} profile={data} />
+          {/* Remount after a resume upload so links found in the resume header pre-fill the fields.
+              Sibling keys must differ: with one shared key React mismatched the two steps on remount
+              and left the old GitHub card on screen beside the new one. */}
+          <GitHubStep
+            key={`github-${data.resume_version}`}
+            profile={data}
+            onFacts={(facts) => setFresh([...facts, ...live])}
+          />
+          <TargetsStep key={`targets-${data.resume_version}`} profile={data} />
           <Link
             to="/ledger"
             className="inline-flex items-center justify-center gap-2 self-start rounded-lg border-3 border-ink bg-violet px-5 py-2.5 font-semibold text-card shadow-comic-sm"
