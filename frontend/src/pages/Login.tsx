@@ -1,6 +1,10 @@
 import { ArrowLeft, LogIn, UserPlus } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
+// Imported, not linked from public/: the build names them by content hash, so a new video is
+// fetched at once while an unchanged one stays cached.
+import loginPoster from '../assets/media/login-poster.jpg'
+import loginVideo from '../assets/media/login.mp4'
 import { Logo } from '../components/Logo'
 import { Button, ErrorNote, Field, PasswordField } from '../components/ui'
 import { useCalm } from '../lib/calm'
@@ -33,12 +37,12 @@ function PanelVideo() {
   const media =
     'block aspect-video w-full object-cover object-[35%_50%] lg:absolute lg:inset-0 lg:aspect-auto lg:size-full'
   return calm ? (
-    <img src="/media/login-poster.jpg" alt="" className={media} />
+    <img src={loginPoster} alt="" className={media} />
   ) : (
     <video
       className={media}
-      src="/media/login.mp4"
-      poster="/media/login-poster.jpg"
+      src={loginVideo}
+      poster={loginPoster}
       autoPlay
       muted
       loop

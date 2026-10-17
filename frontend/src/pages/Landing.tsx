@@ -17,6 +17,9 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { Link } from 'react-router'
+// Content-hashed by the build, so a replaced video reaches visitors at once.
+import introPoster from '../assets/media/intro-poster.jpg'
+import introVideo from '../assets/media/intro.mp4'
 import { Logo } from '../components/Logo'
 import { useCalm } from '../lib/calm'
 import { useMe } from '../lib/session'
@@ -135,8 +138,8 @@ function IntroVideo() {
       <video
         key={calm ? 'calm' : 'auto'}
         className="block aspect-video w-full"
-        src="/media/intro.mp4"
-        poster="/media/intro-poster.jpg"
+        src={introVideo}
+        poster={introPoster}
         muted
         playsInline
         preload={calm ? 'none' : 'auto'}
