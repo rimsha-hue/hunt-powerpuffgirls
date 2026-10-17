@@ -5,12 +5,6 @@ It finds jobs, scores the fit, tailors your CV and prepares each application, an
 
 **No source, no claim.** Every fact Power Hunt writes about you traces back to a resume line, a GitHub repo, a portfolio page or your own confirmation. If it cannot prove something, it asks you.
 
-| Document | For |
-|---|---|
-| [docs/SPEC.md](docs/SPEC.md) | The full product and engineering spec (features, phases, rules) |
-| [docs/HANDOVER.md](docs/HANDOVER.md) | Current state, known issues, next steps, decisions |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code map, data model, security and reliability design |
-| [CLAUDE.md](CLAUDE.md) | Working rules and commands for Claude Code on this repo |
 
 ## Status
 
