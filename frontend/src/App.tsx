@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter, useLocation } from 'react-router'
 import { AppLayout } from './components/Layout'
 import { ToastProvider } from './components/Toast'
 import { ErrorNote, Skeleton } from './components/ui'
-import { useMe } from './lib/session'
+import { ApiError } from './lib/api'
+import { meKey, useMe } from './lib/session'
 import Landing from './pages/Landing'
 
 // The landing page loads eagerly; app screens are split out so first paint stays light.
@@ -12,8 +13,22 @@ const page = (load: () => Promise<{ default: () => ReactNode }>) => async () => 
   Component: (await load()).default,
 })
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } },
+const queryClient: QueryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      // A 401 won't change on a retry: the session is gone.
+      retry: (count, error) => !(error instanceof ApiError && error.status === 401) && count < 1,
+    },
+  },
+  // Any request answered 401 means the session ended (expired, logged out elsewhere): treat the
+  // user as signed out everywhere, so the app goes to the login page instead of showing an error
+  // inside a page that still looks signed in.
+  queryCache: new QueryCache({
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 401) queryClient.setQueryData(meKey, null)
+    },
+  }),
 })
 
 function RequireAuth(): ReactNode {
