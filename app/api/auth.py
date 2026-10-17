@@ -1,7 +1,9 @@
 """Signup, login, logout, current user and "Delete my data"."""
 
+from datetime import UTC, datetime
+
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete
 
@@ -10,7 +12,7 @@ from app.api.ratelimit import rate_limit
 from app.api.schemas import LoginIn, MeOut, SignupIn, UserOut
 from app.db.models import User
 from app.integrations import google_oauth
-from app.services import audit
+from app.services import audit, verification
 from app.services.auth import (
     authenticate,
     create_session,
@@ -61,10 +63,44 @@ def me_out(
     )
 
 
+def _send_verification(
+    request: Request, tasks: BackgroundTasks, db: Db, user: User, settings: AppSettings
+) -> None:
+    token = verification.issue(db, user, hours=settings.email_verify_hours, now=datetime.now(UTC))
+    message = verification.verification_email(
+        user, verification.link(settings.base_url, token), settings.email_verify_hours
+    )
+    tasks.add_task(
+        verification.send_quietly, request.app.state.email, message, event="verify_email"
+    )
+
+
+def _alert_sign_in(
+    request: Request, tasks: BackgroundTasks, user: User, settings: AppSettings, method: str
+) -> None:
+    """A sign-in alert to a verified address (an unverified one may not be the user's)."""
+    if not settings.login_alerts or not user.email_verified:
+        return
+    message = verification.login_alert(
+        user,
+        when=datetime.now(UTC),
+        method=method,
+        ip=request.client.host if request.client else None,
+    )
+    tasks.add_task(verification.send_quietly, request.app.state.email, message, event="login_alert")
+
+
 @router.post(
     "/signup", status_code=status.HTTP_201_CREATED, dependencies=[Depends(rate_limit("signup"))]
 )
-async def signup(body: SignupIn, response: Response, db: Db, settings: AppSettings) -> MeOut:
+async def signup(
+    body: SignupIn,
+    request: Request,
+    response: Response,
+    tasks: BackgroundTasks,
+    db: Db,
+    settings: AppSettings,
+) -> MeOut:
     if await get_user_by_email(db, body.email):
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with that email already exists.")
     user = await create_user(db, email=body.email, password=body.password, name=body.name)
@@ -72,12 +108,52 @@ async def signup(body: SignupIn, response: Response, db: Db, settings: AppSettin
     audit.record(
         db, user_id=user.id, actor="user", action="signed_up", entity="user", entity_id=user.id
     )
+    _send_verification(request, tasks, db, user, settings)
     set_session_cookie(response, token, settings)
     return me_out(user, session.csrf_token, settings)
 
 
+@router.get("/verify", include_in_schema=False, dependencies=[Depends(rate_limit("login"))])
+async def verify_email(db: Db, t: str = "") -> RedirectResponse:
+    """The link from the verification email. It needs no session: it may open in another browser."""
+    try:
+        await verification.confirm(db, t, now=datetime.now(UTC))
+    except verification.VerificationError:
+        return RedirectResponse("/profile?verified=failed", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse("/profile?verified=1", status_code=status.HTTP_302_FOUND)
+
+
+@router.post(
+    "/verify/resend",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit("signup"))],
+)
+async def resend_verification(
+    request: Request,
+    tasks: BackgroundTasks,
+    principal: CurrentUser,
+    db: Db,
+    settings: AppSettings,
+) -> Response:
+    if principal.user.email_verified:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Your email is already verified.")
+    if not request.app.state.email.configured:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Email isn't set up on this server."
+        )
+    _send_verification(request, tasks, db, principal.user, settings)
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
 @router.post("/login", dependencies=[Depends(rate_limit("login"))])
-async def login(body: LoginIn, response: Response, db: Db, settings: AppSettings) -> MeOut:
+async def login(
+    body: LoginIn,
+    request: Request,
+    response: Response,
+    tasks: BackgroundTasks,
+    db: Db,
+    settings: AppSettings,
+) -> MeOut:
     user = await authenticate(db, body.email, body.password)
     if user is None:
         logger.info("login_failed")
@@ -86,6 +162,7 @@ async def login(body: LoginIn, response: Response, db: Db, settings: AppSettings
     audit.record(
         db, user_id=user.id, actor="user", action="logged_in", entity="user", entity_id=user.id
     )
+    _alert_sign_in(request, tasks, user, settings, "your password")
     set_session_cookie(response, token, settings)
     return me_out(user, session.csrf_token, settings)
 
@@ -187,6 +264,10 @@ async def google_callback(
     )
     response.delete_cookie(OAUTH_COOKIE, path=OAUTH_COOKIE_PATH)
     set_session_cookie(response, token, settings)
+    if not created:
+        tasks = BackgroundTasks()
+        _alert_sign_in(request, tasks, user, settings, "Google")
+        response.background = tasks
     return response
 
 

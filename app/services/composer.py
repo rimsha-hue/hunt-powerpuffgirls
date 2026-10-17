@@ -439,6 +439,9 @@ async def send(
         raise WorkspaceError(" ".join(reasons))
     if not email.configured:
         raise WorkspaceError("Email isn't set up on this server.")
+    if not user.email_verified:
+        # Replies go to the user's address; only a proven owner may send from it.
+        raise WorkspaceError("Verify your email first; the link is in your inbox.")
 
     files: list[Attachment] = []
     safe_company = "".join(ch if ch.isalnum() else "-" for ch in job.company)[:40]

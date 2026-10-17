@@ -15,7 +15,7 @@ from app.config import Settings
 from app.integrations.google_oauth import TOKEN_URL
 from app.main import create_app
 from app.services.signing import sign, unsign
-from tests.conftest import LOCATIONS, FakeLLM, signup
+from tests.conftest import LOCATIONS, PASSWORD, FakeLLM, signup
 
 CLIENT_ID = "test-client.apps.googleusercontent.com"
 
@@ -120,6 +120,26 @@ class TestCallback:
         query = start(gclient)
         finish(gclient, query, id_token(nonce=query["nonce"]))
         assert gclient.get("/api/auth/me").json()["user"]["id"] == original_id
+
+    def test_an_unverified_password_on_the_address_stops_working(self, gclient: TestClient) -> None:
+        """Someone signed up with the victim's address and a password but never verified it.
+        When the real owner signs in with Google, that password and its sessions are gone."""
+        signup(gclient, email="hero@example.com")
+        squatter_session = dict(gclient.cookies)
+        gclient.cookies.clear()
+
+        query = start(gclient)
+        finish(gclient, query, id_token(nonce=query["nonce"]))
+        me = gclient.get("/api/auth/me").json()["user"]
+        assert me["email_verified"] is True and me["has_password"] is False
+
+        gclient.cookies.clear()
+        relogin = gclient.post(
+            "/api/auth/login", json={"email": "hero@example.com", "password": PASSWORD}
+        )
+        assert relogin.status_code == 401
+        gclient.cookies.update(squatter_session)
+        assert gclient.get("/api/auth/me").status_code == 401
 
     @pytest.mark.parametrize(
         "claims",

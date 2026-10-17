@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, BookCheck, Briefcase, FileStack, LogOut, Rocket, Sprout, Wind } from 'lucide-react'
+import { Activity, BookCheck, Briefcase, FileStack, LogOut, MailCheck, Rocket, Sprout, Wind } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api, json, type Me } from '../lib/api'
@@ -52,6 +52,32 @@ function CalmToggle() {
       <span className="hidden xl:inline">Calm {on ? 'on' : 'off'}</span>
       <span className="sr-only xl:hidden">Calm mode {on ? 'on' : 'off'}</span>
     </button>
+  )
+}
+
+/** Until the email is verified, nothing is sent from the account; say so and offer a new link. */
+function VerifyBanner() {
+  const toast = useToast()
+  const resend = useMutation({
+    mutationFn: () => api<void>('/api/auth/verify/resend', { method: 'POST' }),
+    onSuccess: () => toast('A new link is on its way. Check your inbox.'),
+    onError: (err) => toast(err.message, 'error'),
+  })
+  return (
+    <div className="border-b-3 border-ink bg-signal">
+      <p className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm font-semibold sm:px-6">
+        <MailCheck className="size-4" aria-hidden />
+        Confirm your email to get digests and send applications. The link is in your inbox.
+        <button
+          type="button"
+          onClick={() => resend.mutate()}
+          disabled={resend.isPending}
+          className="underline disabled:opacity-60"
+        >
+          {resend.isPending ? 'Sending…' : 'Send a new link'}
+        </button>
+      </p>
+    </div>
   )
 }
 
@@ -128,6 +154,7 @@ export function AppLayout() {
         </div>
       </header>
 
+      {me && !scoped && !me.is_demo && !me.user.email_verified && <VerifyBanner />}
       <main className="relative mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
         <Outlet />
         {/* Panel wipe on navigation: decorative, 200 ms, never delays the page underneath. */}

@@ -111,6 +111,9 @@ async def send_digest(
         return DigestResult()
     if not email.configured:
         return DigestResult(note="Email isn't set up, so no digest was sent.")
+    if not user.email_verified:
+        # The jobs stay unnotified, so they are in the first digest after verification.
+        return DigestResult(note="Verify your email to get digests. The link is in your inbox.")
 
     issued = {
         job.id: apply_links.issue(db, user_id=user.id, job_id=job.id, hours=link_hours, now=now)

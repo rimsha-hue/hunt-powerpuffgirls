@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
@@ -120,13 +121,27 @@ def client(settings: Settings, fake_llm: FakeLLM) -> Iterator[TestClient]:
         yield test_client
 
 
-def signup(client: TestClient, email: str = "hero@example.com") -> str:
-    """Creates an account, leaves the session cookie on the client, returns the CSRF token."""
+VERIFY_LINK = re.compile(r"/api/auth/verify\?t=[\w-]+")
+
+
+def signup(client: TestClient, email: str = "hero@example.com", *, verify: bool = True) -> str:
+    """Creates an account, leaves the session cookie on the client, returns the CSRF token.
+
+    With an outbox (a fake email provider), the verification email is taken out of it and its
+    link followed, so tests start from a verified account and count only their own emails."""
     response = client.post(
         "/api/auth/signup", json={"email": email, "password": PASSWORD, "name": "Hero"}
     )
     assert response.status_code == 201, response.text
     token: str = response.json()["csrf_token"]
+    outbox = getattr(client.app.state.email, "sent", None)  # type: ignore[attr-defined]
+    if outbox:
+        message = next(m for m in reversed(outbox) if VERIFY_LINK.search(m.text))
+        outbox.remove(message)
+        if verify:
+            link = VERIFY_LINK.search(message.text)
+            assert link is not None
+            assert client.get(link.group(0), follow_redirects=False).status_code == 302
     return token
 
 
