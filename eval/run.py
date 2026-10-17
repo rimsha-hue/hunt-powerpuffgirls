@@ -241,6 +241,7 @@ async def check(case: Case, world: World, similarity: Similarity, threshold: flo
         llm=ReplayedClaims(case.claims),
         similarity=similarity,
         threshold=threshold,
+        max_questions=0,  # measure the checker itself, not the product's question limit
     )
     return Outcome(case, is_flagged(case, block.text, result.drafts), result.drafts)
 

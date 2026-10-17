@@ -215,6 +215,7 @@ async def decide(
     similarity: Similarity,
     threshold: float,
     now: datetime,
+    whole: bool = False,
 ) -> None:
     """Gates 2 and 3: the user's answer to one claim in the CV, email or cover letter. Only open
     (Needs-you) claims take answers, and only while their document can still change."""
@@ -252,6 +253,10 @@ async def decide(
     elif action == "false":
         await verifier.mark_false(db, blocks, claim, claims, now=now)
     else:
+        if whole:
+            # The user rewrites the whole sentence: the claim spans it, and the other claims in it
+            # go with the old words (verifier._relocate); the new sentence is routed again.
+            claim.span_start, claim.span_end = 0, len(blocks[claim.block_index].text)
         ledger = await load_ledger(db, claim.user_id)
         await verifier.edit(
             blocks,

@@ -42,6 +42,23 @@ from app.services import audit
 logger = structlog.get_logger()
 
 MAX_NOTE = 300
+# At most this many Needs-you questions per document: the riskiest are asked, the rest are kept as
+# rewordings of the user's own lines (Inferred). 0 asks about every unproven claim (the eval).
+MAX_QUESTIONS = 3
+# Which unproven claims matter most: a wrong number, credential or employer misleads a recruiter
+# more than a loosely worded skill phrase.
+QUESTION_PRIORITY = (
+    "metric",
+    "degree",
+    "school",
+    "employer",
+    "role",
+    "certification",
+    "publication",
+    "award",
+    "project",
+    "skill",
+)
 # (type, normalised value, text) of the role or degree an organisation claim is stated with.
 Pair = tuple[str, str, str]
 
@@ -250,6 +267,7 @@ async def verify(
     ignore: Sequence[str] = (),
     context: Sequence[str] = (),
     subject: str = "",
+    max_questions: int = MAX_QUESTIONS,
 ) -> Verification:
     """Claims for every bullet. Blocked claims are cut from the text before anything is stored."""
     out = list(blocks)
@@ -306,7 +324,28 @@ async def verify(
         drafts.extend(
             Draft(i, c, r.bucket, r.normalized, s, block.line_id, pair) for c, r, s, pair in routed
         )
-    return Verification(out, drafts, note)
+    return Verification(out, _cap_questions(drafts, max_questions), note)
+
+
+def _cap_questions(drafts: list[Draft], limit: int) -> list[Draft]:
+    """Keeps the `limit` riskiest Needs-you claims (code-found before model-found, then by type)
+    and routes the rest as Inferred."""
+    asked = [d for d in drafts if d.bucket == "needs_you"]
+    if limit <= 0 or len(asked) <= limit:
+        return drafts
+
+    def risk(draft: Draft) -> tuple[int, int]:
+        kind = draft.claim.type
+        rank = (
+            QUESTION_PRIORITY.index(kind) if kind in QUESTION_PRIORITY else len(QUESTION_PRIORITY)
+        )
+        return (0 if draft.claim.origin == "code" else 1, rank)
+
+    keep = {id(d) for d in sorted(asked, key=risk)[:limit]}
+    return [
+        replace(d, bucket="inferred") if d.bucket == "needs_you" and id(d) not in keep else d
+        for d in drafts
+    ]
 
 
 def claim_rows(
@@ -364,9 +403,10 @@ async def confirm(
 
     An organisation stated with a role or degree ("ML Engineer at Acme") is confirmed as that
     pair: both join the ledger under one entry, so the pair is Verified next time."""
-    if not url and not (note and note.strip()):
-        raise DecisionError("Add a link or a short note that backs this up.")
-    source_ref = (url or f"Note: {note.strip() if note else ''}")[:MAX_NOTE]
+    # A link or note is optional: the user's word is the evidence, labelled as such.
+    source_ref = (url or (f"Note: {note.strip()}" if note and note.strip() else "Your word"))[
+        :MAX_NOTE
+    ]
     entry = f"{claim.pair_text} · {claim.text}"[:MAX_CONTEXT_LENGTH] if claim.pair_type else None
     evidence = await _confirmed_evidence(
         db, claim.user_id, claim.type, claim.normalized_value, claim.text, entry, source_ref, now

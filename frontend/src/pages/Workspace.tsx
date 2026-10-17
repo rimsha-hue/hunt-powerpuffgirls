@@ -276,9 +276,9 @@ function NeedsYouCard({
   onAnswer: (action: ClaimAction) => void
   autoFocus: boolean
 }) {
-  const [mode, setMode] = useState<'idle' | 'confirm' | 'edit'>('idle')
-  const [proof, setProof] = useState('')
-  const [wording, setWording] = useState(claim.text)
+  const [mode, setMode] = useState<'idle' | 'edit'>('idle')
+  // Edit rewrites the whole sentence the claim sits in; the new sentence is checked again.
+  const [wording, setWording] = useState(block?.text ?? claim.text)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (autoFocus) ref.current?.focus()
@@ -287,20 +287,15 @@ function NeedsYouCard({
   function onKey(event: KeyboardEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget || busy) return
     const key = event.key.toLowerCase()
-    if (key === 'y') setMode('confirm')
+    if (key === 'y') onAnswer({ action: 'confirm' })
     else if (key === 'e') setMode('edit')
     else if (key === 'r') onAnswer({ action: 'remove' })
     else return
     event.preventDefault()
   }
-  function confirm(event: FormEvent) {
-    event.preventDefault()
-    const value = proof.trim()
-    onAnswer(/^https?:\/\//i.test(value) ? { action: 'confirm', url: value } : { action: 'confirm', note: value })
-  }
   function edit(event: FormEvent) {
     event.preventDefault()
-    onAnswer({ action: 'edit', text: wording })
+    onAnswer({ action: 'edit', text: wording, whole: Boolean(block) })
   }
 
   return (
@@ -316,33 +311,14 @@ function NeedsYouCard({
       </p>
       <p className="font-bold">{claim.text}</p>
       {block && <p className="mt-1 text-xs text-ink/80">“{block.text}”</p>}
-      {mode === 'confirm' && (
-        <form onSubmit={confirm} className="mt-2 flex flex-col gap-2">
-          <input
-            autoFocus
-            value={proof}
-            onChange={(e) => setProof(e.target.value)}
-            maxLength={280}
-            placeholder="Link (repo, certificate) or a short note"
-            className="rounded-lg border-3 border-ink px-2 py-1 text-sm"
-          />
-          <div className="flex gap-2">
-            <Button type="submit" disabled={busy || !proof.trim()} className="px-3 py-1 text-sm">
-              Confirm
-            </Button>
-            <Button variant="ghost" onClick={() => setMode('idle')} className="px-3 py-1 text-sm">
-              Cancel
-            </Button>
-          </div>
-        </form>
-      )}
       {mode === 'edit' && (
         <form onSubmit={edit} className="mt-2 flex flex-col gap-2">
-          <input
+          <textarea
             autoFocus
+            rows={3}
             value={wording}
             onChange={(e) => setWording(e.target.value)}
-            maxLength={300}
+            maxLength={600}
             className="rounded-lg border-3 border-ink px-2 py-1 text-sm"
           />
           <div className="flex gap-2">
@@ -357,7 +333,7 @@ function NeedsYouCard({
       )}
       {mode === 'idle' && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setMode('confirm')} disabled={busy}>
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => onAnswer({ action: 'confirm' })} disabled={busy}>
             <Check className="size-3.5" aria-hidden /> Confirm <kbd className="font-mono">Y</kbd>
           </Button>
           <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setMode('edit')} disabled={busy}>
@@ -598,7 +574,7 @@ export default function Workspace() {
             ) : (
               <div className="flex flex-col gap-3">
                 <p className="text-xs">
-                  Confirm with a link or note, edit the wording, or remove it. Keys: Y, E, R. Nothing unproven ships.
+                  Confirm it's true, edit the sentence, or remove it. Keys: Y, E, R.
                 </p>
                 {open.map((claim, i) => (
                   <NeedsYouCard

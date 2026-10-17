@@ -311,6 +311,7 @@ async def decide_claim(
             similarity=similarity,
             threshold=settings.infer_threshold,
             now=datetime.now(UTC),
+            whole=body.whole,
         )
     except DecisionError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc

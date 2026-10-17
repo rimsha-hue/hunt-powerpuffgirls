@@ -442,7 +442,9 @@ class ClaimDecisionIn(BaseModel):
     action: Literal["confirm", "edit", "remove", "false"]
     url: AnyHttpUrl | None = None
     note: str | None = Field(default=None, max_length=280)
-    text: str | None = Field(default=None, max_length=300)
+    text: str | None = Field(default=None, max_length=600)
+    # Edit: replace the whole sentence the claim sits in, not only the claim's words.
+    whole: bool = False
 
 
 # ---- Coach and growth plans (Phase 6) ----

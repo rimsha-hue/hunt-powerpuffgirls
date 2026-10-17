@@ -452,7 +452,7 @@ export interface Application {
 
 export type ClaimAction =
   | { action: 'confirm'; url?: string; note?: string }
-  | { action: 'edit'; text: string }
+  | { action: 'edit'; text: string; whole?: boolean }
   | { action: 'remove' }
   | { action: 'false' }
 

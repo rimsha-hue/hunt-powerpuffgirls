@@ -83,12 +83,7 @@ class TestWorkspace:
         assert blocked.status_code == 409 and "need you" in blocked.json()["detail"]
         assert ws.get(f"/api/jobs/{job_id}/application/cv.pdf").status_code == 409
 
-        no_proof = ws.post(
-            f"/api/claims/{_claim(app, 'Kubernetes')['id']}/decision",
-            json={"action": "confirm"},
-            headers=headers,
-        )
-        assert no_proof.status_code == 409
+        # A link is optional now (the user's word is accepted); this one gives one.
         app = ws.post(
             f"/api/claims/{_claim(app, 'Kubernetes')['id']}/decision",
             json={"action": "confirm", "url": "https://github.com/hero/k8s-operator"},
