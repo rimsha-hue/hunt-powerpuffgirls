@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Bot, ShieldCheck, User } from 'lucide-react'
-import { ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
+import { ErrorNote, PageHeader, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { api, type Activity as ActivityData, type ActivityCounters } from '../lib/api'
 import { cx } from '../lib/cx'
 
@@ -36,12 +36,9 @@ export default function Activity() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel hearts p-6">
-        <h1 className="font-display text-5xl tracking-wide">Activity</h1>
-        <p className="mt-1 max-w-2xl font-semibold">
-          Everything the squad did and every decision you made, in order. Nothing leaves without passing your gates.
-        </p>
-      </section>
+      <PageHeader title="Activity">
+        Everything the squad did and every decision you made, in order. Nothing leaves without passing your gates.
+      </PageHeader>
 
       {activity.isPending && <Skeleton className="h-40" />}
       {activity.error && <ErrorNote>{activity.error.message}</ErrorNote>}

@@ -51,7 +51,10 @@ because the local Python is 3.13 and the project needs 3.12 (see "How to run che
   (`integrations/pdf.py` STYLES); every CV is read back with pdfplumber and checked
   (`domain/cv_format.py`: readable, at most 2 pages, name first, sections in order); a failing
   template falls back to one that passes. `GET .../cv-check?template=` and `cv.pdf?template=`.
-- Owner's remaining ask: UI polish pass (same Powerpuff palette and fonts, more consistency).
+- UI polish, first pass (done, same branch): one-row sticky header (labels show at xl, accessible
+  names below), wider page (max-w-7xl), shared `PageHeader` and `Stat` in `components/ui.tsx` used by
+  every page. Further polish ideas: consistent empty states, card spacing on Jobs/Tailor, a
+  screenshot-driven pass with the owner.
 
 ## To do, in priority order
 

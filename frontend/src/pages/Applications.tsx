@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, BellRing, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router'
-import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
+import { Button, ErrorNote, PageHeader, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { api, json, STAGES, type JobStatus, type PipelineItem, type Stage } from '../lib/api'
 import { useToast } from '../lib/toast'
 
@@ -101,12 +101,9 @@ export default function Applications() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel hearts p-6">
-        <h1 className="font-display text-5xl tracking-wide">Tailor and apply</h1>
-        <p className="mt-1 max-w-2xl font-semibold">
-          Every job you picked: open the Tailor to work on its CV, send it, then track the reply. Applied on an
-          employer's site yourself? Mark it on the job's page and track it here too.
-        </p>
+      <PageHeader title="Tailor and apply">
+        Every job you picked: open the Tailor to work on its CV, send it, then track the reply. Applied on an
+        employer's site yourself? Mark it on the job's page and track it here too.
         {rows.length > 0 && (
           <p className="mt-3 flex flex-wrap gap-2">
             {STAGES.filter((s) => rows.some((r) => r.stage === s.value)).map((s) => (
@@ -120,7 +117,7 @@ export default function Applications() {
             ))}
           </p>
         )}
-      </section>
+      </PageHeader>
 
       {due > 0 && (
         <p className="flex items-center gap-2 rounded-lg border-3 border-ink bg-buttercup px-4 py-2 font-semibold">

@@ -43,6 +43,38 @@ export function Button({
   )
 }
 
+/** The top of every page: one title size, one description width, an optional aside (a stat or the
+ * page's main action) and optional decoration behind the text. */
+export function PageHeader({
+  title,
+  children,
+  aside,
+  decoration,
+}: {
+  title: string
+  children?: ReactNode
+  aside?: ReactNode
+  decoration?: ReactNode
+}) {
+  return (
+    <section className="panel hearts relative flex flex-wrap items-end justify-between gap-4 overflow-hidden p-6">
+      {decoration}
+      <div className="relative max-w-3xl">
+        <h1 className="font-display text-4xl tracking-wide sm:text-5xl">{title}</h1>
+        {children && <div className="mt-1 font-semibold">{children}</div>}
+      </div>
+      {aside && <div className="relative">{aside}</div>}
+    </section>
+  )
+}
+
+/** A count shown beside a page title: "12 facts · 30 proofs". */
+export function Stat({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-lg border-3 border-ink bg-card px-3 py-1.5 font-mono text-sm font-medium">{children}</span>
+  )
+}
+
 export function Panel({ className, children }: { className?: string; children: ReactNode }) {
   return <section className={cx('panel bg-card p-5', className)}>{children}</section>
 }
