@@ -5,20 +5,6 @@ It finds jobs, scores the fit, tailors your CV and prepares each application, an
 
 **No source, no claim.** Every fact Power Hunt writes about you traces back to a resume line, a GitHub repo, a portfolio page or your own confirmation. If it cannot prove something, it asks you.
 
-
-## Status
-
-| Phase | Deliverable | State |
-|---|---|---|
-| 0 | FastAPI skeleton, Dockerfile, CI, `/health` | Done (deploy blocked by the platform's builder) |
-| 1 | Auth (email + Google), demo seed, resume/portfolio/GitHub evidence ledger, Onboarding and Ledger screens, input guardrails | Done |
-| 2 | Scout, ATS score, Jobs screen, digest email with signed Apply links | Done |
-| 3 | Tailor, Verifier (Verified, Inferred, Needs you), Needs-you gate, learning loop, CV PDF | Done |
-| 4 | Email apply flow: attachments, humanized email, send after approval | Done |
-| 5 | Form apply flow: Greenhouse questions, company research, Apply Pack | Done |
-| 6 | Coach growth plans for skill gaps, GitHub repo verification, Activity screen | Done |
-| 7 | Claim checker eval (numbers below), malicious job description test, CI baseline | Done; MCP server not built |
-
 ## Run locally
 
 ### Prerequisites
