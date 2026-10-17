@@ -16,14 +16,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Application, Claim, ClaimBlocklist, Evidence, Job, SkillPlan, User
 from app.domain.coach import (
+    MAX_IDEAS,
+    MAX_MILESTONES,
+    MAX_SCOPE,
     MAX_STEP,
+    MIN_IDEAS,
+    MIN_MILESTONES,
     PlanText,
+    ProjectIdea,
     all_passed,
     check_repo,
+    idea_problems,
     next_status,
+    normalize_idea,
     normalize_plan,
     parse_repo_url,
     plan_problems,
+    template_ideas,
     template_plan,
 )
 from app.domain.locations import LocationIndex
@@ -59,6 +68,37 @@ class PlanDraft(BaseModel):
     why: str = Field(min_length=1, max_length=600)
     steps: list[str] = Field(min_length=1, max_length=8)
     hours: int = Field(ge=1, le=200)
+
+
+IDEAS_SYSTEM = (
+    "You suggest concrete portfolio projects that prove one skill to an employer. Each idea is a "
+    "small real product with a clear user, not a tutorial exercise, and each idea is different "
+    "in kind from the others (for example a tool, a service, an analysis). The skill is used for "
+    "the project's core job. Keep each to 6 to 30 hours and build on the candidate's skills. "
+    "Write plainly, with no em or en dashes and no hype words."
+)
+IDEAS_TASK = (
+    f"Suggest {MIN_IDEAS} to {MAX_IDEAS} project ideas for the skill in the data. For each: a "
+    "specific title; a pitch (what it is, one or two sentences); the problem (who has it); the "
+    f"first version's scope (1 to {MAX_SCOPE} short items); the stack (tools, including the "
+    f"skill); {MIN_MILESTONES} to {MAX_MILESTONES} milestones in order; how the finished public "
+    "repo proves the skill; and an honest estimate in hours."
+)
+
+
+class IdeaDraft(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    pitch: str = Field(min_length=1, max_length=600)
+    problem: str = Field(min_length=1, max_length=600)
+    scope: list[str] = Field(min_length=1, max_length=8)
+    stack: list[str] = Field(min_length=1, max_length=10)
+    milestones: list[str] = Field(min_length=1, max_length=8)
+    proof: str = Field(min_length=1, max_length=600)
+    hours: int = Field(ge=1, le=200)
+
+
+class IdeasDraft(BaseModel):
+    ideas: list[IdeaDraft] = Field(min_length=1, max_length=6)
 
 
 class CoachError(Exception):
@@ -109,6 +149,64 @@ async def _draft(
         logger.info("coach_draft_rejected", problems=problems)
         seen.extend(p for p in problems if p not in seen)
     return template_plan(skill), "template"
+
+
+async def suggest_ideas(
+    db: AsyncSession, plan: SkillPlan, *, llm: StructuredLLM, taxonomy: Taxonomy, now: datetime
+) -> list[ProjectIdea]:
+    """2 to 3 project ideas for a plan's skill, stored on the plan. Ideas that break a rule are
+    dropped; if too few remain after one rewrite, template ideas fill the gap."""
+    known = await _known_skills(db, plan.user_id)
+    data = {"skill": plan.skill, "candidate_skills": ", ".join(sorted(known)[:MAX_KNOWN_SKILLS])}
+    kept: list[ProjectIdea] = []
+    seen: list[str] = []
+    for _ in range(2 if llm.configured else 0):
+        task = IDEAS_TASK + (
+            f" Earlier ideas broke these rules: {'; '.join(seen)}." if seen else ""
+        )
+        try:
+            draft = await llm.generate(schema=IdeasDraft, system=IDEAS_SYSTEM, task=task, data=data)
+        except LLMError as exc:
+            logger.warning("coach_ideas_failed", error_type=type(exc).__name__)
+            break
+        for item in draft.ideas:
+            idea = normalize_idea(
+                ProjectIdea(
+                    title=item.title,
+                    pitch=item.pitch,
+                    problem=item.problem,
+                    scope=tuple(item.scope),
+                    stack=tuple(item.stack),
+                    milestones=tuple(item.milestones),
+                    proof=item.proof,
+                    hours=item.hours,
+                )
+            )
+            problems = idea_problems(idea, plan.skill, taxonomy)
+            if problems:
+                seen.extend(p for p in problems if p not in seen)
+            elif idea.title.lower() not in {k.title.lower() for k in kept}:
+                kept.append(idea)
+        if len(kept) >= MIN_IDEAS:
+            break
+    # Templates only fill the gap; with no usable LLM idea the user gets every template.
+    ideas = kept[:MAX_IDEAS] if kept else []
+    for template in template_ideas(plan.skill):
+        if kept and len(ideas) >= MIN_IDEAS:
+            break
+        ideas.append(template)
+    plan.ideas_json = [idea.to_json() for idea in ideas[:MAX_IDEAS]]
+    plan.updated_at = now
+    audit.record(
+        db,
+        user_id=plan.user_id,
+        actor="coach",
+        action="ideas_suggested",
+        entity="plan",
+        entity_id=plan.id,
+        from_llm=len(kept),
+    )
+    return [ProjectIdea.from_json(i) for i in plan.ideas_json]
 
 
 async def create_plan(

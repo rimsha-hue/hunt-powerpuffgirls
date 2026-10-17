@@ -5,15 +5,19 @@ import pytest
 from app.domain.activity import GATES, label
 from app.domain.coach import (
     PlanText,
+    ProjectIdea,
     RepoFacts,
     acceptance,
     all_passed,
     check_repo,
     extra_skills,
+    idea_problems,
     next_status,
     normalize_plan,
     parse_repo_url,
     plan_problems,
+    proposal_markdown,
+    template_ideas,
     template_plan,
 )
 from app.domain.taxonomy import default_taxonomy
@@ -58,6 +62,27 @@ def _checks(facts: RepoFacts, username: str | None = "ayesha-dev") -> dict[str, 
         facts, username=username, skill="Kubernetes", since=SINCE, taxonomy=TAX, min_commits=3
     )
     return {c.name: c.passed for c in checks}
+
+
+class TestIdeas:
+    @pytest.mark.parametrize("skill", ["Kubernetes", "PyTorch", "SQL"])
+    def test_templates_always_pass_the_rules(self, skill: str) -> None:
+        ideas = template_ideas(skill)
+        assert len(ideas) == 3 and len({i.title for i in ideas}) == 3
+        assert all(idea_problems(i, skill, TAX) == [] for i in ideas)
+
+    def test_an_idea_must_use_the_skill_and_be_sized(self) -> None:
+        idea = template_ideas("Kubernetes")[0]
+        assert "never uses SQL" in idea_problems(idea, "SQL", TAX)
+        short = ProjectIdea(**{**idea.to_json(), "milestones": ("Ship it.",)})  # type: ignore[arg-type]
+        assert any("milestones" in p for p in idea_problems(short, "Kubernetes", TAX))
+
+    def test_round_trip_and_proposal(self) -> None:
+        idea = template_ideas("Kubernetes")[1]
+        assert ProjectIdea.from_json(idea.to_json()) == idea
+        page = proposal_markdown(idea, "Kubernetes")
+        assert page.startswith(f"# {idea.title}") and "## How it proves Kubernetes" in page
+        assert all(m in page for m in idea.milestones)
 
 
 class TestPlanText:

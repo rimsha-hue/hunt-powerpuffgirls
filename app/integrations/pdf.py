@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
+from app.domain.coach import ProjectIdea
 from app.domain.cv import Block
 
 FONT_DIR = Path(__file__).resolve().parents[1] / "templates" / "fonts"
@@ -62,6 +63,50 @@ def render_cv(blocks: Sequence[Block], *, title: str) -> bytes:
         else:
             pdf.set_font(FONT, "", 10)
             pdf.multi_cell(width, 5, block.text, new_x="LMARGIN", new_y="NEXT", align="L")
+    return bytes(pdf.output())
+
+
+def render_proposal(idea: ProjectIdea, skill: str) -> bytes:
+    """A one-page project proposal from the Coach: title, then labelled sections."""
+    pdf = _CvPdf()
+    pdf.set_title(idea.title)
+    pdf.set_creator("Power Hunt")
+    pdf.add_page()
+    width = pdf.epw
+
+    def section(heading: str, lines: Sequence[str], *, bullet: str = "") -> None:
+        pdf.ln(2)
+        pdf.set_font(FONT, "B", 11)
+        pdf.multi_cell(width, 6, heading.upper(), new_x="LMARGIN", new_y="NEXT", align="L")
+        pdf.set_draw_color(*RULE)
+        pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + width, pdf.get_y())
+        pdf.ln(1.5)
+        pdf.set_font(FONT, "", 10.5)
+        for i, line in enumerate(lines, start=1):
+            mark = f"{i}." if bullet == "number" else bullet
+            if mark:
+                pdf.cell(7, 5.5, mark)
+                pdf.multi_cell(width - 7, 5.5, line, new_x="LMARGIN", new_y="NEXT", align="L")
+            else:
+                pdf.multi_cell(width, 5.5, line, new_x="LMARGIN", new_y="NEXT", align="L")
+
+    pdf.set_font(FONT, "B", 18)
+    pdf.multi_cell(width, 8, idea.title, new_x="LMARGIN", new_y="NEXT", align="L")
+    pdf.set_font(FONT, "", 9.5)
+    pdf.multi_cell(
+        width,
+        5,
+        f"A project that proves {skill}. About {idea.hours} hours.",
+        new_x="LMARGIN",
+        new_y="NEXT",
+        align="L",
+    )
+    section("What it is", [idea.pitch])
+    section("The problem", [idea.problem])
+    section("First version", idea.scope, bullet="•")
+    section("Stack", [", ".join(idea.stack)])
+    section("Milestones", idea.milestones, bullet="number")
+    section(f"How it proves {skill}", [idea.proof])
     return bytes(pdf.output())
 
 

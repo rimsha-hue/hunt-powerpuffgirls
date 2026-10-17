@@ -360,6 +360,8 @@ class SkillPlan(Base):
     repo_url: Mapped[str | None] = mapped_column(String(300))
     # The last repo check, one row per acceptance criterion: [{"name", "passed", "detail"}]
     checks_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    # Project ideas for the skill (domain.coach.ProjectIdea), each with a one-page proposal.
+    ideas_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

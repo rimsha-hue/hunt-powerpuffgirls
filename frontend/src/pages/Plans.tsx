@@ -1,5 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, CircleCheck, CircleX, Clock, ExternalLink, GitBranch, Sprout, Trash2 } from 'lucide-react'
+import {
+  Check,
+  CircleCheck,
+  CircleX,
+  Clock,
+  Download,
+  ExternalLink,
+  GitBranch,
+  Lightbulb,
+  Sprout,
+  Trash2,
+} from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router'
@@ -66,6 +77,95 @@ function LevelUp({ skill }: { skill: string }) {
     >
       Level up! {skill} proven
     </motion.div>
+  )
+}
+
+/** The Coach's project ideas: what to build, each with a one-page proposal to download. */
+function Ideas({ plan, onChange }: { plan: Plan; onChange: (next: Plan) => void }) {
+  const toast = useToast()
+  const [open, setOpen] = useState<number | null>(null)
+  const suggest = useMutation({
+    mutationFn: () => api<Plan>(`/api/plans/${plan.id}/ideas`, { method: 'POST' }),
+    onSuccess: (next) => {
+      onChange(next)
+      setOpen(0)
+    },
+    onError: (err) => toast(err.message, 'error'),
+  })
+  const base = `/api/plans/${plan.id}/ideas`
+  return (
+    <section className="rounded-xl border-3 border-ink bg-bubbles/30 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-semibold">Project ideas</h3>
+          <p className="text-xs">Concrete things to build that prove {plan.skill}, each with a one-page proposal.</p>
+        </div>
+        <Button variant={plan.ideas.length ? 'ghost' : 'primary'} onClick={() => suggest.mutate()} disabled={suggest.isPending}>
+          <Lightbulb className="size-4" aria-hidden />
+          {suggest.isPending ? 'Thinking…' : plan.ideas.length ? 'New ideas' : 'Suggest project ideas'}
+        </Button>
+      </div>
+      {plan.ideas.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-2">
+          {plan.ideas.map((idea, index) => (
+            <li key={idea.title} className="rounded-lg border-2 border-ink bg-card p-3">
+              <button
+                type="button"
+                className="flex w-full items-start justify-between gap-3 text-left"
+                aria-expanded={open === index}
+                onClick={() => setOpen(open === index ? null : index)}
+              >
+                <span>
+                  <span className="block font-bold">{idea.title}</span>
+                  <span className="block text-sm">{idea.pitch}</span>
+                </span>
+                <span className="shrink-0 font-mono text-xs">about {idea.hours} h</span>
+              </button>
+              {open === index && (
+                <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
+                  <p>
+                    <span className="font-semibold">Problem: </span>
+                    {idea.problem}
+                  </p>
+                  <p>
+                    <span className="font-semibold">Stack: </span>
+                    {idea.stack.join(', ')}
+                  </p>
+                  <div>
+                    <p className="font-semibold">First version</p>
+                    <ul className="list-disc pl-5">
+                      {idea.scope.map((s) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="font-semibold">Milestones</p>
+                    <ol className="list-decimal pl-5">
+                      {idea.milestones.map((m) => (
+                        <li key={m}>{m}</li>
+                      ))}
+                    </ol>
+                  </div>
+                  <p className="md:col-span-2">
+                    <span className="font-semibold">How it proves {plan.skill}: </span>
+                    {idea.proof}
+                  </p>
+                </div>
+              )}
+              <p className="mt-2 flex gap-3 text-xs font-semibold">
+                <a href={`${base}/${index}/proposal.pdf`} className="inline-flex items-center gap-1 underline">
+                  <Download className="size-3.5" aria-hidden /> Proposal (PDF)
+                </a>
+                <a href={`${base}/${index}/proposal.md`} className="inline-flex items-center gap-1 underline">
+                  <Download className="size-3.5" aria-hidden /> Markdown
+                </a>
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -240,6 +340,8 @@ function PlanCard({ plan, focused }: { plan: Plan; focused: boolean }) {
             </Button>
           </form>
         )}
+
+        <Ideas plan={plan} onChange={replace} />
 
         <footer className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <span>

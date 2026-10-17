@@ -1,5 +1,6 @@
 """Coach endpoints: growth plans for skill gaps and GitHub verification (spec section 7)."""
 
+import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -9,6 +10,7 @@ from app.api.applications import job_for
 from app.api.deps import LLM, AppSettings, CurrentUser, Db, GitHub, Locations, Principal, Tax
 from app.api.ratelimit import rate_limit
 from app.api.schemas import (
+    IdeaOut,
     PlanCheckOut,
     PlanCreateIn,
     PlanOut,
@@ -18,10 +20,18 @@ from app.api.schemas import (
     PlanVerifyOut,
 )
 from app.db.models import Evidence, Job, SkillPlan
-from app.domain.coach import PlanText, acceptance, extra_skills
+from app.domain.coach import PlanText, ProjectIdea, acceptance, extra_skills, proposal_markdown
 from app.domain.taxonomy import Taxonomy
+from app.integrations.pdf import render_proposal
 from app.services import audit
-from app.services.coach import CoachError, create_plan, plan_day, set_step, verify_repo
+from app.services.coach import (
+    CoachError,
+    create_plan,
+    plan_day,
+    set_step,
+    suggest_ideas,
+    verify_repo,
+)
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
 
@@ -79,6 +89,7 @@ async def plan_out(
         job_title=f"{job.title} at {job.company}" if job is not None else None,
         created_at=plan.created_at,
         verified_at=plan.verified_at,
+        ideas=[IdeaOut.model_validate(ProjectIdea.from_json(i).to_json()) for i in plan.ideas_json],
     )
 
 
@@ -179,6 +190,49 @@ async def verify_plan(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return PlanVerifyOut(
         plan=await plan_out(db, plan, principal, settings, taxonomy), verified=verified
+    )
+
+
+@router.post("/{plan_id}/ideas", dependencies=[Depends(rate_limit("ingest"))])
+async def plan_ideas(
+    plan_id: int, principal: CurrentUser, db: Db, llm: LLM, taxonomy: Tax, settings: AppSettings
+) -> PlanOut:
+    """Asks the Coach for project ideas (again, replacing the last ones)."""
+    plan = await _plan_for(db, principal, plan_id)
+    await suggest_ideas(db, plan, llm=llm, taxonomy=taxonomy, now=datetime.now(UTC))
+    return await plan_out(db, plan, principal, settings, taxonomy)
+
+
+def _idea(plan: SkillPlan, index: int) -> ProjectIdea:
+    if not 0 <= index < len(plan.ideas_json):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Idea not found.")
+    return ProjectIdea.from_json(plan.ideas_json[index])
+
+
+def _filename(idea: ProjectIdea, extension: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", idea.title.lower()).strip("-")[:60] or "proposal"
+    return f'attachment; filename="{slug}.{extension}"'
+
+
+@router.get("/{plan_id}/ideas/{index}/proposal.pdf")
+async def proposal_pdf(plan_id: int, index: int, principal: CurrentUser, db: Db) -> Response:
+    plan = await _plan_for(db, principal, plan_id)
+    idea = _idea(plan, index)
+    return Response(
+        render_proposal(idea, plan.skill),
+        media_type="application/pdf",
+        headers={"Content-Disposition": _filename(idea, "pdf")},
+    )
+
+
+@router.get("/{plan_id}/ideas/{index}/proposal.md")
+async def proposal_md(plan_id: int, index: int, principal: CurrentUser, db: Db) -> Response:
+    plan = await _plan_for(db, principal, plan_id)
+    idea = _idea(plan, index)
+    return Response(
+        proposal_markdown(idea, plan.skill),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": _filename(idea, "md")},
     )
 
 

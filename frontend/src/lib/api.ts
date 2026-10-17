@@ -468,6 +468,18 @@ export interface Plan {
   job_title: string | null
   created_at: string
   verified_at: string | null
+  ideas: ProjectIdea[]
+}
+
+export interface ProjectIdea {
+  title: string
+  pitch: string
+  problem: string
+  scope: string[]
+  stack: string[]
+  milestones: string[]
+  proof: string
+  hours: number
 }
 
 export interface PlanVerify {

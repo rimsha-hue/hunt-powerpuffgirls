@@ -126,6 +126,32 @@ class TestPlans:
             plan = client.post("/api/plans", json={"skill": "Kubernetes"}, headers=headers).json()
         assert plan["written_by"] == "template" and len(plan["steps"]) == 5
 
+    def test_ideas_keep_good_drafts_and_fill_with_templates(self, settings: Settings) -> None:
+        good = {
+            "title": "Kubernetes deploy for a campus events API",
+            "pitch": "Deploy a small events API on Kubernetes with health checks.",
+            "problem": "Student societies lose track of events across chat groups.",
+            "scope": ["One API service", "A Kubernetes deployment with probes"],
+            "stack": ["Kubernetes", "Docker", "Python"],
+            "milestones": ["Write the API.", "Containerise it.", "Deploy it on Kubernetes."],
+            "proof": "The repo holds working Kubernetes manifests that deploy the service.",
+            "hours": 12,
+        }
+        hype = {**good, "title": "A revolutionary Kubernetes platform", "milestones": ["Ship."]}
+        llm = ScriptedLLM({**_llm().payloads, "IdeasDraft": {"ideas": [good, hype]}})
+        with _client(settings, llm) as client:
+            headers, _ = _setup(client)
+            plan = client.post("/api/plans", json={"skill": "Kubernetes"}, headers=headers).json()
+            ideas = client.post(f"/api/plans/{plan['id']}/ideas", headers=headers).json()["ideas"]
+            assert [i["title"] for i in ideas][0] == good["title"]
+            assert len(ideas) == 2  # the broken idea is dropped, a template fills the gap
+            pdf = client.get(f"/api/plans/{plan['id']}/ideas/0/proposal.pdf")
+            assert pdf.headers["content-type"] == "application/pdf"
+            assert pdf.content.startswith(b"%PDF")
+            md = client.get(f"/api/plans/{plan['id']}/ideas/1/proposal.md")
+            assert md.text.startswith("# ") and "## Milestones" in md.text
+            assert client.get(f"/api/plans/{plan['id']}/ideas/5/proposal.pdf").status_code == 404
+
     def test_steps_move_the_plan_along(self, ws: TestClient) -> None:
         headers, _ = _setup(ws)
         plan = ws.post("/api/plans", json={"skill": "Kubernetes"}, headers=headers).json()

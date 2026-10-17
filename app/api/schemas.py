@@ -457,6 +457,19 @@ class PlanCheckOut(BaseModel):
     detail: str
 
 
+class IdeaOut(BaseModel):
+    """A Coach project idea; its one-page proposal downloads as PDF or Markdown."""
+
+    title: str
+    pitch: str
+    problem: str
+    scope: list[str]
+    stack: list[str]
+    milestones: list[str]
+    proof: str
+    hours: int
+
+
 class PlanOut(BaseModel):
     id: int
     skill: str
@@ -475,6 +488,7 @@ class PlanOut(BaseModel):
     job_title: str | None
     created_at: datetime
     verified_at: datetime | None
+    ideas: list[IdeaOut] = Field(default_factory=list)
 
 
 class PlanVerifyOut(BaseModel):
