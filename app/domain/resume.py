@@ -124,7 +124,7 @@ _SUFFIXES = (
 _TERMINAL = (".", ";", "!", "?")
 _MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
 # "Jun 2022 - Aug 2022", "2019 - 2023", "Jul 2023 - Present": the dates of a new entry.
-_DATE_RANGE_RE = re.compile(
+DATE_RANGE_RE = re.compile(
     rf"\b(?:{_MONTH}\s*)?(?:19|20)\d{{2}}\s*(?:-|–|—|to)\s*"
     rf"(?:(?:{_MONTH}\s*)?(?:19|20)\d{{2}}|present|current|now)\b",
     re.I,
@@ -152,12 +152,47 @@ class ContactInfo:
     portfolio_url: str | None = None
 
 
+# Keywords for headings not listed exactly ("Research Experience", "Honors & Awards",
+# "Volunteer Work"). Most specific first: "Volunteer Experience" is an activity, not a job.
+_HEADING_KEYWORDS: tuple[tuple[str, str], ...] = (
+    (r"volunteer|leadership|extra.?curricular|societ(?:y|ies)|clubs?", "activities"),
+    (r"publications?|papers?|research", "publications"),
+    (r"awards?|hono(?:u)?rs?|achievements?|scholarships?", "awards"),
+    (r"certifi\w*|licen[cs]es?", "certifications"),
+    (r"projects?|portfolio", "projects"),
+    (r"education|academics?|qualifications?", "education"),
+    (r"skills?|technolog\w*|tools|competenc\w*|tech stack", "skills"),
+    (r"experience|employment|work history|internships?|career", "experience"),
+    (r"summary|profile|objective|about", "summary"),
+    (r"languages?", "languages"),
+    (r"interests?|hobbies", "interests"),
+)
+MAX_HEADING_WORDS = 5
+
+
+def _looks_like_heading(line: str) -> bool:
+    words = line.rstrip(":").split()
+    if not 1 <= len(words) <= MAX_HEADING_WORDS or re.search(r"\d|[.,;!?]|https?:|@", line):
+        return False
+    return (
+        line.endswith(":")
+        or line.isupper()
+        or all(w[:1].isupper() or w in {"&", "and", "of"} for w in words)
+    )
+
+
 def heading_section(line: str) -> str | None:
     key = re.sub(r"[^a-z& ]", "", line.lower()).strip()
     key = re.sub(r"\s+", " ", key)
     if len(key) > 40:
         return None
-    return _HEADING_LOOKUP.get(key)
+    exact = _HEADING_LOOKUP.get(key)
+    if exact or not _looks_like_heading(line.strip()):
+        return exact
+    for pattern, section in _HEADING_KEYWORDS:
+        if re.search(rf"\b(?:{pattern})\b", key):
+            return section
+    return None
 
 
 def clean_line(raw: str) -> str:
@@ -200,7 +235,7 @@ def _continues(prev: _Logical, raw: str, text: str, section: str) -> bool:
         return False
     if prev.text.endswith("-") or text[:1].islower():
         return True
-    if _DATE_RANGE_RE.search(text):
+    if DATE_RANGE_RE.search(text):
         return False  # an entry title with its dates starts a new entry, even after a long bullet
     if prev.text.endswith((",", "&", "(", "/", "+")):
         return True

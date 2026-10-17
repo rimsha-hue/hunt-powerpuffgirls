@@ -86,3 +86,51 @@ def test_metric_keys_are_recomputed_by_head_noun(tmp_path: Path) -> None:
         ("2000000 record/day", "resume"),
         ("1200 agent", "user_confirmed"),
     ]
+
+
+def test_resume_facts_get_their_entries(tmp_path: Path) -> None:
+    """0011: stored roles and employers are linked to their entry from the stored resume lines,
+    and the same role can then be stored once per entry."""
+    path = tmp_path / "entries.db"
+    cfg = Config(str(ROOT_DIR / "alembic.ini"))
+    cfg.attributes["database_url"] = f"sqlite+aiosqlite:///{path.as_posix()}"
+    command.upgrade(cfg, "0010")
+    now = "2026-10-17 00:00:00"
+    lines = ["EXPERIENCE", "ML Engineer", "Nimbus Labs, 2024 - Present", "SKILLS", "Python"]
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "INSERT INTO users (id, email, name, password_hash, created_at) VALUES (1, 'a@b.c', '', '', ?)",
+            (now,),
+        )
+        db.executemany(
+            "INSERT INTO resume_lines (id, user_id, resume_version, section, line_no, text, bulleted)"
+            " VALUES (?, 1, 1, ?, ?, ?, 0)",
+            [
+                (10 + no, "skills" if no >= 4 else "experience", no, text)
+                for no, text in enumerate(lines, start=1)
+            ],
+        )
+        db.executemany(
+            "INSERT INTO evidence (user_id, claim_text, type, normalized_value, source, source_ref,"
+            " confirmed_by, confidence, created_at) VALUES (1, ?, ?, ?, 'resume', ?, 'system', 1, ?)",
+            [
+                ("ML Engineer", "role", "ml engineer", "12", now),
+                ("Nimbus Labs", "employer", "nimbus labs", "13", now),
+                ("Python", "skill", "python", "15", now),
+            ],
+        )
+    command.upgrade(cfg, "0011")
+    with sqlite3.connect(path) as db:
+        stored = dict(db.execute("SELECT type, context FROM evidence").fetchall())
+        db.execute(
+            "INSERT INTO evidence (user_id, claim_text, type, normalized_value, source, source_ref,"
+            " context, confirmed_by, confidence, created_at)"
+            " VALUES (1, 'ML Engineer', 'role', 'ml engineer', 'resume', '20', 'ML Engineer · Acme',"
+            " 'system', 1, ?)",
+            (now,),
+        )
+    assert stored == {
+        "role": "ML Engineer · Nimbus Labs",
+        "employer": "ML Engineer · Nimbus Labs",
+        "skill": None,
+    }

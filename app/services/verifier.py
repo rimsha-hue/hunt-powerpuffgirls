@@ -8,6 +8,7 @@ to the ledger as user-confirmed evidence, so the same claim is Verified on the n
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
+from typing import cast
 
 import structlog
 from pydantic import BaseModel, Field
@@ -18,6 +19,7 @@ from app.db.models import Claim, ClaimBlocklist, Evidence
 from app.domain.claims import (
     FoundClaim,
     Ledger,
+    LedgerRow,
     Routing,
     clause_around,
     code_claims,
@@ -25,10 +27,12 @@ from app.domain.claims import (
     locate,
     merge,
     outside,
+    pair_up,
     route,
 )
 from app.domain.cv import Block, replace_span, too_short
-from app.domain.ledger import FactType
+from app.domain.ledger import FACT_TYPES, MAX_CONTEXT_LENGTH, FactType, normalize_fact
+from app.domain.normalize import normalize_text
 from app.domain.taxonomy import Taxonomy
 from app.integrations.embeddings import Similarity
 from app.integrations.llm import LLMError, StructuredLLM
@@ -37,15 +41,20 @@ from app.services import audit
 logger = structlog.get_logger()
 
 MAX_NOTE = 300
+# (type, normalised value, text) of the role or degree an organisation claim is stated with.
+Pair = tuple[str, str, str]
 
 CLAIM_SYSTEM = (
     "You list the claims a CV makes about the candidate. Bullets are given as [B4] text. A claim "
     "is one checkable statement: a skill or tool used, a result, a role or title held, an "
-    "employer, a degree, a certification, a project, or an action taken. Quote each claim exactly "
-    "as it appears in its bullet, as a short span (a few words), and give its type. Do not "
-    "paraphrase, merge bullets or add anything."
+    "employer, a degree, a school attended, a certification, a project, or an action taken. "
+    "Quote each claim exactly as it appears in its bullet, as a short span (a few words), and "
+    "give its type. Do not paraphrase, merge bullets or add anything."
 )
-CLAIM_TASK = "List every claim in every bullet. Types: skill, metric, employer, degree, certification, project, role, personal."
+CLAIM_TASK = (
+    "List every claim in every bullet. Types: skill, metric, employer, degree, school, "
+    "certification, project, role, personal, publication, award, other."
+)
 
 
 class ProposedClaim(BaseModel):
@@ -70,6 +79,7 @@ class Draft:
     normalized: str
     similarity: float
     line_id: int
+    pair: Pair | None = None
 
 
 @dataclass
@@ -79,13 +89,13 @@ class Verification:
     note: str | None
 
 
-async def load_ledger(db: AsyncSession, user_id: int) -> tuple[Ledger, list[str]]:
-    """(ledger keys incl. blocklist, employer names as written) for one user."""
+async def load_ledger(db: AsyncSession, user_id: int) -> Ledger:
+    """One user's ledger: keys, entries, organisation names and blocklist."""
     rows = (
         await db.execute(
-            select(Evidence.type, Evidence.normalized_value, Evidence.claim_text).where(
-                Evidence.user_id == user_id
-            )
+            select(
+                Evidence.type, Evidence.normalized_value, Evidence.claim_text, Evidence.context
+            ).where(Evidence.user_id == user_id)
         )
     ).all()
     blocked = (
@@ -93,9 +103,7 @@ async def load_ledger(db: AsyncSession, user_id: int) -> tuple[Ledger, list[str]
             select(ClaimBlocklist.normalized_value).where(ClaimBlocklist.user_id == user_id)
         )
     ).scalars()
-    ledger = Ledger.build(((t, v) for t, v, _ in rows), blocked)
-    employers = sorted({text for t, _, text in rows if t == "employer"}, key=len, reverse=True)
-    return ledger, employers
+    return Ledger.build((LedgerRow(t, v, text, entry) for t, v, text, entry in rows), blocked)
 
 
 async def _llm_claims(
@@ -132,13 +140,13 @@ def _find(
     block: Block,
     llm_found: Sequence[FoundClaim],
     *,
-    employers: Sequence[str],
+    ledger: Ledger,
     taxonomy: Taxonomy,
     ignore: Sequence[str],
     context: Sequence[str],
     subject: str = "",
 ) -> list[FoundClaim]:
-    found = merge([*code_claims(block.text, taxonomy, employers), *llm_found])
+    found = merge([*code_claims(block.text, taxonomy, ledger.names), *llm_found])
     return [
         c
         for c in outside(found, block.text, ignore)
@@ -157,23 +165,40 @@ def _union(spans: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
     return merged
 
 
-def _route(
-    claim: FoundClaim,
+def pair_of(claim_type: FactType, text: str, taxonomy: Taxonomy) -> tuple[str, str]:
+    return claim_type, normalize_fact(claim_type, text, taxonomy) or normalize_text(text)
+
+
+def _route_block(
     block: Block,
-    sim: float,
+    claims: Sequence[FoundClaim],
+    sims: Mapping[tuple[int, int, int], float],
+    index: int,
     *,
     ledger: Ledger,
     taxonomy: Taxonomy,
     threshold: float,
-) -> Routing:
-    return route(
-        claim,
-        ledger=ledger,
-        taxonomy=taxonomy,
-        source_line=block.original or None,
-        similarity=sim,
-        threshold=threshold,
-    )
+) -> list[tuple[FoundClaim, Routing, float, Pair | None]]:
+    """Routes every claim of one bullet. An organisation stated with a role or degree is routed as
+    part of that pair (claims.route), and the pair is kept so a confirmation can record it."""
+    partners = pair_up([(c.type, c.start, c.end) for c in claims], block.text)
+    out: list[tuple[FoundClaim, Routing, float, Pair | None]] = []
+    for i, claim in enumerate(claims):
+        partner = claims[partners[i]] if i in partners else None
+        paired = pair_of(partner.type, partner.text, taxonomy) if partner else None
+        sim = sims[(index, claim.start, claim.end)]
+        routing = route(
+            claim,
+            ledger=ledger,
+            taxonomy=taxonomy,
+            source_line=block.original or None,
+            similarity=sim,
+            threshold=threshold,
+            paired_with=paired,
+        )
+        pair = (*paired, partner.text) if partner and paired else None
+        out.append((claim, routing, sim, pair))
+    return out
 
 
 async def _claim_similarities(
@@ -213,7 +238,6 @@ async def verify(
     blocks: Sequence[Block],
     *,
     ledger: Ledger,
-    employers: Sequence[str],
     taxonomy: Taxonomy,
     llm: StructuredLLM,
     similarity: Similarity,
@@ -226,25 +250,28 @@ async def verify(
     out = list(blocks)
     indexes = [i for i, b in enumerate(out) if b.kind == "bullet" and b.text]
     llm_found, note = await _llm_claims(out, indexes, llm)
-    find = {
-        "employers": employers,
-        "taxonomy": taxonomy,
-        "ignore": ignore,
-        "context": context,
-        "subject": subject,
-    }
-    found = {i: _find(out[i], [c for b, c in llm_found if b == i], **find) for i in indexes}  # type: ignore[arg-type]
+
+    def find(block: Block, llm_claims: Sequence[FoundClaim]) -> list[FoundClaim]:
+        return _find(
+            block,
+            llm_claims,
+            ledger=ledger,
+            taxonomy=taxonomy,
+            ignore=ignore,
+            context=context,
+            subject=subject,
+        )
+
+    found = {i: find(out[i], [c for b, c in llm_found if b == i]) for i in indexes}
     sims = await _claim_similarities(out, found, similarity)
-    rules = {"ledger": ledger, "taxonomy": taxonomy, "threshold": threshold}
 
     drafts: list[Draft] = []
     for i in indexes:
         block = out[i]
-        routed = [
-            (c, _route(c, block, sims[(i, c.start, c.end)], **rules), sims[(i, c.start, c.end)])  # type: ignore[arg-type]
-            for c in found[i]
-        ]
-        blocked = [(c, r, s) for c, r, s in routed if r.bucket == "blocked"]
+        routed = _route_block(
+            block, found[i], sims, i, ledger=ledger, taxonomy=taxonomy, threshold=threshold
+        )
+        blocked = [(c, r, s) for c, r, s, _ in routed if r.bucket == "blocked"]
         if blocked:
             text = block.text
             # Claims may overlap (an LLM claim around a code claim), so cut merged ranges.
@@ -256,15 +283,24 @@ async def verify(
                 for c, r, s in blocked
             )
             # The wording changed, so the rest is found and scored again on the new text.
-            again = {i: _find(block, [], **find)} if block.text else {}  # type: ignore[arg-type]
+            again = {i: find(block, [])} if block.text else {}
             new_sims = await _claim_similarities(out, again, similarity)
             routed = [
-                (c, r, new_sims[(i, c.start, c.end)])
-                for c in again.get(i, [])
-                for r in [_route(c, block, new_sims[(i, c.start, c.end)], **rules)]  # type: ignore[arg-type]
-                if r.bucket != "blocked"
+                item
+                for item in _route_block(
+                    block,
+                    again.get(i, []),
+                    new_sims,
+                    i,
+                    ledger=ledger,
+                    taxonomy=taxonomy,
+                    threshold=threshold,
+                )
+                if item[1].bucket != "blocked"
             ]
-        drafts.extend(Draft(i, c, r.bucket, r.normalized, s, block.line_id) for c, r, s in routed)
+        drafts.extend(
+            Draft(i, c, r.bucket, r.normalized, s, block.line_id, pair) for c, r, s, pair in routed
+        )
     return Verification(out, drafts, note)
 
 
@@ -286,6 +322,9 @@ def claim_rows(
             origin=d.claim.origin,
             cited_line_id=d.line_id or None,
             similarity=d.similarity,
+            pair_type=d.pair[0] if d.pair else None,
+            pair_value=d.pair[1][:500] if d.pair else None,
+            pair_text=d.pair[2][:500] if d.pair else None,
         )
         for d in drafts
     ]
@@ -316,38 +355,34 @@ async def confirm(
     now: datetime,
 ) -> Evidence:
     """The user vouches for the claim with a link or a note. It joins the ledger as their own
-    evidence, and every open claim in this application with the same value is Verified too."""
+    evidence, and every open claim in this application with the same value is Verified too.
+
+    An organisation stated with a role or degree ("ML Engineer at Acme") is confirmed as that
+    pair: both join the ledger under one entry, so the pair is Verified next time."""
     if not url and not (note and note.strip()):
         raise DecisionError("Add a link or a short note that backs this up.")
-    existing = (
-        await db.execute(
-            select(Evidence).where(
-                Evidence.user_id == claim.user_id,
-                Evidence.type == claim.type,
-                Evidence.normalized_value == claim.normalized_value,
-                Evidence.source == "user_confirmed",
-            )
-        )
-    ).scalar_one_or_none()
-    evidence = existing or Evidence(
-        user_id=claim.user_id,
-        claim_text=claim.text,
-        type=claim.type,
-        normalized_value=claim.normalized_value,
-        source="user_confirmed",
-        source_ref=(url or f"Note: {note.strip() if note else ''}")[:MAX_NOTE],
-        confirmed_by="user",
-        confidence=1.0,
-        created_at=now,
+    source_ref = (url or f"Note: {note.strip() if note else ''}")[:MAX_NOTE]
+    entry = f"{claim.pair_text} · {claim.text}"[:MAX_CONTEXT_LENGTH] if claim.pair_type else None
+    evidence = await _confirmed_evidence(
+        db, claim.user_id, claim.type, claim.normalized_value, claim.text, entry, source_ref, now
     )
-    if existing is None:
-        db.add(evidence)
-        await db.flush()
+    if claim.pair_type and claim.pair_value and claim.pair_text:
+        await _confirmed_evidence(
+            db,
+            claim.user_id,
+            claim.pair_type,
+            claim.pair_value,
+            claim.pair_text,
+            entry,
+            source_ref,
+            now,
+        )
     for other in claims:
         if (
             other.bucket == "needs_you"
             and other.type == claim.type
             and other.normalized_value == claim.normalized_value
+            and (other.pair_type, other.pair_value) == (claim.pair_type, claim.pair_value)
         ):
             other.bucket = "verified"
             other.evidence_id = evidence.id
@@ -363,6 +398,46 @@ async def confirm(
         evidence_id=evidence.id,
         with_link=bool(url),
     )
+    return evidence
+
+
+async def _confirmed_evidence(
+    db: AsyncSession,
+    user_id: int,
+    fact_type: str,
+    value: str,
+    text: str,
+    entry: str | None,
+    source_ref: str,
+    now: datetime,
+) -> Evidence:
+    existing = (
+        await db.execute(
+            select(Evidence).where(
+                Evidence.user_id == user_id,
+                Evidence.type == fact_type,
+                Evidence.normalized_value == value,
+                Evidence.source == "user_confirmed",
+                Evidence.context.is_(None) if entry is None else Evidence.context == entry,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    evidence = Evidence(
+        user_id=user_id,
+        claim_text=text,
+        type=fact_type,
+        normalized_value=value,
+        source="user_confirmed",
+        source_ref=source_ref,
+        context=entry,
+        confirmed_by="user",
+        confidence=1.0,
+        created_at=now,
+    )
+    db.add(evidence)
+    await db.flush()
     return evidence
 
 
@@ -485,16 +560,53 @@ async def edit(
     claim.text = new_text[:500]
     _relocate(text, claim, claims, old=old, delta=len(text) - len(block.text))
     [sim] = await similarity.scores([(text, block.original)])
-    found = FoundClaim(new_text, claim.type, claim.span_start, claim.span_end, claim.origin)  # type: ignore[arg-type]
-    routing = route(
-        found,
-        ledger=ledger,
-        taxonomy=taxonomy,
-        source_line=block.original,
-        similarity=sim,
-        threshold=threshold,
-    )
-    claim.normalized_value = routing.normalized[:500]
     claim.similarity = round(sim, 4)
-    claim.bucket = "needs_you" if routing.bucket == "blocked" else routing.bucket
     claim.user_decision, claim.decided_at = "edited", now
+
+    # The edited claim and every organisation paired with it are routed again: changing "ML
+    # Engineer" in "ML Engineer at Acme" changes what "Acme" claims.
+    live = [
+        c
+        for c in claims
+        if c.block_index == claim.block_index and c.bucket not in ("blocked", "removed")
+    ]
+    partners = pair_up([(c.type, c.span_start, c.span_end) for c in live], text)
+    for i, other in enumerate(live):
+        partner = live[partners[i]] if i in partners else None
+        if other is not claim and partner is not claim:
+            continue
+        paired = pair_of(_fact_type(partner.type), partner.text, taxonomy) if partner else None
+        routing = route(
+            FoundClaim(
+                other.text,
+                _fact_type(other.type),
+                other.span_start,
+                other.span_end,
+                "code" if other.origin == "code" else "llm",
+            ),
+            ledger=ledger,
+            taxonomy=taxonomy,
+            source_line=block.original,
+            similarity=sim,
+            threshold=threshold,
+            paired_with=paired,
+        )
+        other.normalized_value = routing.normalized[:500]
+        other.pair_type, other.pair_value, other.pair_text = (
+            (paired[0], paired[1][:500], partner.text[:500])
+            if partner and paired
+            else (None, None, None)
+        )
+        if other is claim:
+            claim.bucket = "needs_you" if routing.bucket == "blocked" else routing.bucket
+        elif routing.bucket not in ("verified", "inferred"):
+            # Its pair changed, so an earlier answer about it no longer holds.
+            other.bucket, other.user_decision, other.decided_at = "needs_you", None, None
+        elif other.bucket == "needs_you":
+            other.bucket = routing.bucket  # the edit made the pair one the ledger proves
+
+
+def _fact_type(value: str) -> FactType:
+    if value not in FACT_TYPES:
+        raise ValueError(f"unknown fact type {value!r}")
+    return cast(FactType, value)

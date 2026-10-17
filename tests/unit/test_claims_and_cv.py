@@ -110,7 +110,7 @@ class TestBlocks:
 class TestCodePass:
     def test_finds_numbers_skills_degrees_and_employers(self) -> None:
         text = "Led 5 engineers at Google building Kubernetes tooling with a PhD in Physics, cut cost 35%"
-        found = {(c.type, c.text) for c in code_claims(text, TAX, ["Nimbus Labs"])}
+        found = {(c.type, c.text) for c in code_claims(text, TAX, {"employer": ["Nimbus Labs"]})}
         assert ("metric", "35%") in found
         assert ("skill", "Kubernetes") in found
         assert ("employer", "Google") in found
@@ -119,7 +119,7 @@ class TestCodePass:
 
     def test_version_numbers_are_not_claims(self) -> None:
         assert not [
-            c for c in code_claims("Fine-tuned GPT-4 models", TAX, []) if c.type == "metric"
+            c for c in code_claims("Fine-tuned GPT-4 models", TAX, {}) if c.type == "metric"
         ]
 
     def test_an_llm_claim_the_code_claims_cover_is_dropped(self) -> None:
@@ -130,7 +130,7 @@ class TestCodePass:
 
     def test_an_llm_claim_that_says_more_is_kept_beside_the_code_claim(self) -> None:
         text = "Senior backend and AI engineer"
-        code = next(c for c in code_claims(text, TAX, []) if c.text == "AI")
+        code = next(c for c in code_claims(text, TAX, {}) if c.text == "AI")
         role = FoundClaim(text, "role", 0, len(text), "llm")
         assert merge([code, role]) == [role, code]
 
@@ -145,23 +145,23 @@ class TestRouting:
 
     def test_exact_ledger_matches_are_verified(self) -> None:
         text = "Cut LLM inference cost 40% with Redis caching"
-        claims = {c.text: c for c in code_claims(text, TAX, [])}
+        claims = {c.text: c for c in code_claims(text, TAX, {})}
         assert _route(text, claims["40%"], self.LINE) == "verified"
         assert _route(text, claims["Redis"], self.LINE) == "verified"
 
     def test_an_inflated_number_needs_you(self) -> None:
         text = "Cut LLM inference cost 45% with Redis caching"
-        claim = next(c for c in code_claims(text, TAX, []) if c.type == "metric")
+        claim = next(c for c in code_claims(text, TAX, {}) if c.type == "metric")
         assert _route(text, claim, self.LINE) == "needs_you"
 
     def test_a_skill_the_line_lacks_needs_you(self) -> None:
         text = "Cut LLM cost 40% with Redis and Kubernetes"
-        claim = next(c for c in code_claims(text, TAX, []) if c.text == "Kubernetes")
+        claim = next(c for c in code_claims(text, TAX, {}) if c.text == "Kubernetes")
         assert _route(text, claim, self.LINE) == "needs_you"
 
     def test_fake_degree_and_employer_need_you(self) -> None:
         text = "PhD in Physics from MIT, worked at Google"
-        for claim in code_claims(text, TAX, []):
+        for claim in code_claims(text, TAX, {}):
             if claim.type in ("degree", "employer"):
                 assert _route(text, claim, self.LINE) == "needs_you"
 
@@ -267,14 +267,14 @@ class TestStyleAndRendering:
 class TestProseClaims:
     def test_the_job_applied_for_is_not_a_claim(self) -> None:
         text = "I am applying for the Senior Android Engineer role at M365connect."
-        found = code_claims(text, TAX, [])
+        found = code_claims(text, TAX, {})
         assert {c.text for c in found} >= {"Android", "M365connect"}  # no trailing full stop
         kept = outside(found, text, ["Senior Android Engineer", "M365connect"])
         assert kept == []
 
     def test_at_company_stops_before_a_pronoun(self) -> None:
         text = "As an intern at Acme Analytics I automated ETL pipelines"
-        assert [c.text for c in code_claims(text, TAX, []) if c.type == "employer"] == [
+        assert [c.text for c in code_claims(text, TAX, {}) if c.type == "employer"] == [
             "Acme Analytics"
         ]
 
