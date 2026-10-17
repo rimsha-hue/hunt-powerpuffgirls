@@ -70,6 +70,9 @@ export interface User {
   name: string
   github_username: string | null
   portfolio_url: string | null
+  google_linked: boolean
+  has_password: boolean
+  created_at: string
 }
 
 export interface Me {
@@ -234,6 +237,41 @@ export const STATUS_LABELS: Record<JobStatus, string> = {
   rejected: 'Rejected',
   expired: 'Closed',
   skipped: 'Skipped',
+}
+
+export type Stage =
+  | 'picked'
+  | 'tailoring'
+  | 'ready'
+  | 'applied'
+  | 'follow_up'
+  | 'interview'
+  | 'assessment'
+  | 'offer'
+  | 'rejected'
+  | 'closed'
+
+export const STAGES: Array<{ value: Stage; label: string; hint: string }> = [
+  { value: 'follow_up', label: 'Follow-up due', hint: 'Sent a while ago with no answer yet. A short nudge helps.' },
+  { value: 'picked', label: 'Picked', hint: 'On your list; the Tailor has not started.' },
+  { value: 'tailoring', label: 'Tailoring', hint: 'CV drafted; claims are waiting for you.' },
+  { value: 'ready', label: 'Ready to send', hint: 'CV approved; send the email or submit the form.' },
+  { value: 'applied', label: 'Applied', hint: 'Waiting to hear back.' },
+  { value: 'interview', label: 'Interview', hint: '' },
+  { value: 'assessment', label: 'Assessment', hint: '' },
+  { value: 'offer', label: 'Offer', hint: '' },
+  { value: 'rejected', label: 'Rejected', hint: '' },
+  { value: 'closed', label: 'Closed', hint: 'The posting closed before you sent it.' },
+]
+
+export interface PipelineItem {
+  job: Job
+  stage: Stage
+  application_status: 'draft' | 'cv_approved' | 'sent' | 'submitted' | null
+  sent_at: string | null
+  follow_up_due: string | null
+  ats_after: number | null
+  external: boolean
 }
 
 export interface Job {

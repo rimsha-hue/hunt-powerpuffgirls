@@ -35,6 +35,9 @@ class UserOut(BaseModel):
     name: str
     github_username: str | None
     portfolio_url: str | None
+    google_linked: bool
+    has_password: bool
+    created_at: datetime
 
 
 class MeOut(BaseModel):
@@ -207,6 +210,19 @@ class JobOut(BaseModel):
     missing_skills: list[str]
     status: str
     status_changed_at: datetime
+
+
+class PipelineItemOut(BaseModel):
+    """A job the user is working on or has applied to, at its stage in the pipeline."""
+
+    job: JobOut
+    stage: str  # domain.status.Stage
+    application_status: str | None  # draft | cv_approved | sent | submitted
+    sent_at: datetime | None
+    follow_up_due: datetime | None
+    ats_after: int | None
+    # True when the user applied outside Power Hunt and is only tracking the job here.
+    external: bool
 
 
 class KeywordOut(BaseModel):

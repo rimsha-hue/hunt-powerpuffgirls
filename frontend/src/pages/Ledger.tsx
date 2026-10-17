@@ -30,6 +30,128 @@ const SOURCES: Array<{ value: FactSource | 'all'; label: string }> = [
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' })
 
+/** The "All" view, one table per kind of fact. Entry-bound facts are grouped under their entry
+ * (the job, school or project they belong to), so a role sits next to its employer. */
+const SECTIONS: Array<{ id: string; title: string; types: FactType[]; byEntry?: boolean; chips?: boolean }> = [
+  { id: 'experience', title: 'Experience', types: ['role', 'employer'], byEntry: true },
+  { id: 'education', title: 'Education', types: ['degree', 'school'], byEntry: true },
+  { id: 'projects', title: 'Projects', types: ['project'] },
+  { id: 'results', title: 'Results', types: ['metric'], byEntry: true },
+  { id: 'skills', title: 'Skills', types: ['skill'], chips: true },
+  { id: 'certifications', title: 'Certifications', types: ['certification'] },
+  { id: 'publications', title: 'Publications', types: ['publication'] },
+  { id: 'awards', title: 'Awards', types: ['award'] },
+  { id: 'personal', title: 'Personal', types: ['personal'] },
+  { id: 'other', title: 'Other', types: ['other'] },
+]
+
+function byEntry(groups: FactGroup[]): Array<[string | null, FactGroup[]]> {
+  const entries = new Map<string | null, FactGroup[]>()
+  for (const g of groups) entries.set(g.context, [...(entries.get(g.context) ?? []), g])
+  // Facts with no entry last.
+  return [...entries.entries()].sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : 0))
+}
+
+function FactRow({ group, onDelete }: { group: FactGroup; onDelete: (group: FactGroup) => void }) {
+  return (
+    <tr className="flex flex-wrap items-center gap-2 border-b-2 border-ink/15 px-4 py-3 last:border-0 sm:table-row sm:p-0">
+      <td className="sm:w-32 sm:px-4 sm:py-3">
+        <TypeTag type={group.type} />
+      </td>
+      <td className="w-full break-words sm:w-auto sm:px-4 sm:py-3">
+        <span className="font-semibold">{group.claim_text}</span>
+        {group.confirmed_by_user && (
+          <span className="ml-2 font-mono text-[11px] font-medium uppercase">· confirmed by you</span>
+        )}
+      </td>
+      <td className="sm:px-4 sm:py-3">
+        <span className="flex flex-wrap gap-1.5">
+          {group.sources.map((s) => (
+            <SourceBadge key={s.id} fact={s} />
+          ))}
+        </span>
+      </td>
+      <td className="whitespace-nowrap font-mono text-xs sm:px-4 sm:py-3">{dateFormat.format(new Date(group.created_at))}</td>
+      <td className="ml-auto sm:px-4 sm:py-3 sm:text-right">
+        <button
+          type="button"
+          onClick={() => onDelete(group)}
+          className="inline-flex items-center gap-1 rounded-lg border-2 border-transparent px-2 py-1 text-xs font-semibold hover:border-ink hover:bg-blossom"
+          aria-label={`Delete fact: ${group.claim_text}`}
+        >
+          <Trash2 className="size-4" aria-hidden />
+          <span className="sm:sr-only">Delete</span>
+        </button>
+      </td>
+    </tr>
+  )
+}
+
+function FactTable({
+  groups,
+  grouped,
+  onDelete,
+}: {
+  groups: FactGroup[]
+  grouped: boolean
+  onDelete: (group: FactGroup) => void
+}) {
+  return (
+    <div className="panel overflow-hidden bg-card">
+      <table className="w-full text-left text-sm">
+        {grouped ? (
+          byEntry(groups).map(([entry, items]) => (
+            <tbody key={entry ?? 'none'}>
+              <tr>
+                <th colSpan={5} className="border-b-2 border-ink bg-buttercup/60 px-4 py-1.5 text-left text-xs font-bold">
+                  {entry ?? 'Not tied to one entry'}
+                </th>
+              </tr>
+              {items.map((g) => (
+                <FactRow key={g.key} group={g} onDelete={onDelete} />
+              ))}
+            </tbody>
+          ))
+        ) : (
+          <tbody>
+            {groups.map((g) => (
+              <FactRow key={g.key} group={g} onDelete={onDelete} />
+            ))}
+          </tbody>
+        )}
+      </table>
+    </div>
+  )
+}
+
+function SkillChips({ groups, onDelete }: { groups: FactGroup[]; onDelete: (group: FactGroup) => void }) {
+  return (
+    <ul className="panel flex flex-wrap gap-2 bg-card p-4">
+      {groups.map((g) => (
+        <li
+          key={g.key}
+          className="inline-flex items-center gap-1.5 rounded-full border-2 border-ink bg-bubbles/50 py-0.5 pl-3 pr-1 text-sm font-semibold"
+        >
+          {g.claim_text}
+          <span className="flex gap-1">
+            {g.sources.map((s) => (
+              <SourceBadge key={s.id} fact={s} />
+            ))}
+          </span>
+          <button
+            type="button"
+            onClick={() => onDelete(g)}
+            className="rounded-full p-1 hover:bg-blossom"
+            aria-label={`Delete skill: ${g.claim_text}`}
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export default function Ledger() {
   const [q, setQ] = useState('')
   const [type, setType] = useState<FactType | 'all'>('all')
@@ -137,64 +259,43 @@ export default function Ledger() {
             )
           )}
         </div>
-      ) : (
-        <div className="panel overflow-hidden bg-card">
-          <table className="w-full text-left text-sm">
-            <thead className="hidden border-b-3 border-ink bg-violet text-card sm:table-header-group">
-              <tr>
-                <th className="px-4 py-2 font-mono text-xs font-medium uppercase">Type</th>
-                <th className="px-4 py-2 font-mono text-xs font-medium uppercase">Fact</th>
-                <th className="px-4 py-2 font-mono text-xs font-medium uppercase">Sources</th>
-                <th className="px-4 py-2 font-mono text-xs font-medium uppercase">Added</th>
-                <th className="px-4 py-2">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((group) => (
-                <tr
-                  key={group.key}
-                  className="flex flex-wrap items-center gap-2 border-b-2 border-ink/15 px-4 py-3 last:border-0 sm:table-row sm:p-0"
+      ) : type === 'all' ? (
+        <>
+          <nav aria-label="Sections" className="flex flex-wrap gap-2">
+            {SECTIONS.map((s) => {
+              const count = groups.filter((g) => s.types.includes(g.type)).length
+              return count ? (
+                <a
+                  key={s.id}
+                  href={`#ledger-${s.id}`}
+                  className="rounded-lg border-3 border-ink bg-card px-3 py-1 text-sm font-semibold shadow-comic-sm"
                 >
-                  <td className="sm:px-4 sm:py-3">
-                    <TypeTag type={group.type} />
-                  </td>
-                  <td className="w-full break-words sm:w-auto sm:px-4 sm:py-3">
-                    <span className="font-semibold">{group.claim_text}</span>
-                    {group.confirmed_by_user && (
-                      <span className="ml-2 font-mono text-[11px] font-medium uppercase">· confirmed by you</span>
-                    )}
-                    {group.context && (
-                      <span className="mt-0.5 block font-mono text-[11px] font-medium text-ink/70">in {group.context}</span>
-                    )}
-                  </td>
-                  <td className="sm:px-4 sm:py-3">
-                    <span className="flex flex-wrap gap-1.5">
-                      {group.sources.map((s) => (
-                        <SourceBadge key={s.id} fact={s} />
-                      ))}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap font-mono text-xs sm:px-4 sm:py-3">
-                    {dateFormat.format(new Date(group.created_at))}
-                  </td>
-                  <td className="ml-auto sm:px-4 sm:py-3 sm:text-right">
-                    <button
-                      type="button"
-                      onClick={() => remove.mutate(group)}
-                      className="inline-flex items-center gap-1 rounded-lg border-2 border-transparent px-2 py-1 text-xs font-semibold hover:border-ink hover:bg-blossom"
-                      aria-label={`Delete fact: ${group.claim_text}`}
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                      <span className="sm:sr-only">Delete</span>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  {s.title} <span className="font-mono text-xs">{count}</span>
+                </a>
+              ) : null
+            })}
+          </nav>
+          {SECTIONS.map((s) => {
+            const inSection = groups.filter((g) => s.types.includes(g.type))
+            if (!inSection.length) return null
+            return (
+              <section key={s.id} id={`ledger-${s.id}`} className="flex scroll-mt-6 flex-col gap-2">
+                <h2 className="font-display text-3xl tracking-wide">{s.title}</h2>
+                {s.chips ? (
+                  <SkillChips groups={inSection} onDelete={(g) => remove.mutate(g)} />
+                ) : (
+                  <FactTable groups={inSection} grouped={Boolean(s.byEntry)} onDelete={(g) => remove.mutate(g)} />
+                )}
+              </section>
+            )
+          })}
+        </>
+      ) : (
+        <FactTable
+          groups={groups}
+          grouped={SECTIONS.some((s) => s.byEntry && s.types.includes(type))}
+          onDelete={(g) => remove.mutate(g)}
+        />
       )}
     </div>
   )

@@ -72,6 +72,16 @@ export default function JobDetail() {
     },
     onError: (err) => toast(err.message, 'error'),
   })
+  const appliedElsewhere = useMutation({
+    mutationFn: () => api<Job>(`/api/jobs/${id}/applied-elsewhere`, { method: 'POST' }),
+    onSuccess: (updated) => {
+      qc.setQueryData<Detail>(key, (old) => (old ? { ...old, ...updated } : old))
+      void qc.invalidateQueries({ queryKey: ['jobs'] })
+      void qc.invalidateQueries({ queryKey: ['applications'] })
+      toast('Marked as applied. Track the reply under Applications.')
+    },
+    onError: (err) => toast(err.message, 'error'),
+  })
 
   if (job.isPending) {
     return (
@@ -91,6 +101,7 @@ export default function JobDetail() {
   const phrases = j.keywords.filter((k) => k.kind === 'phrase')
   const closed = j.status === 'expired'
   const chosen = j.status !== 'new' && j.status !== 'skipped' && !closed
+  const canMarkApplied = ['new', 'shortlisted', 'in_review', 'approved', 'expired'].includes(j.status)
 
   return (
     <div className="flex flex-col gap-6">
@@ -218,6 +229,16 @@ export default function JobDetail() {
             >
               Open the posting <ExternalLink className="size-4" aria-hidden />
             </a>
+            {canMarkApplied && !scoped && (
+              <Button
+                variant="ghost"
+                className="mt-2 w-full text-sm"
+                onClick={() => appliedElsewhere.mutate()}
+                disabled={appliedElsewhere.isPending}
+              >
+                <Check className="size-4" aria-hidden /> I applied on their site myself
+              </Button>
+            )}
             <p className="mt-3 mb-1 text-sm font-semibold">They ask for</p>
             <ul className="flex flex-wrap gap-2">
               {j.required_attachments.map((item) => (

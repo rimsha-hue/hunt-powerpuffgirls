@@ -42,6 +42,12 @@ def set_session_cookie(response: Response, token: str, settings: AppSettings) ->
     )
 
 
+def is_demo_user(user: User, settings: AppSettings) -> bool:
+    """The shared account judges and visitors sign in to; it must survive their clicks."""
+    demo = (settings.demo_user_email or "").lower()
+    return bool(demo) and user.email == demo
+
+
 def me_out(
     user: User, csrf_token: str, settings: AppSettings, scope_job_id: int | None = None
 ) -> MeOut:
@@ -50,8 +56,7 @@ def me_out(
         csrf_token=csrf_token,
         onboarded=user.profile.resume_version > 0,
         calm_mode=user.profile.calm_mode,
-        is_demo=bool(settings.demo_user_email)
-        and user.email == (settings.demo_user_email or "").lower(),
+        is_demo=is_demo_user(user, settings),
         scope_job_id=scope_job_id,
     )
 
@@ -202,8 +207,10 @@ async def logout(request: Request, principal: AnyPrincipal, db: Db) -> Response:
 
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_my_data(principal: CurrentUser, db: Db) -> Response:
+async def delete_my_data(principal: CurrentUser, db: Db, settings: AppSettings) -> Response:
     """Removes the user and, through ON DELETE CASCADE, every row they own."""
+    if is_demo_user(principal.user, settings):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The shared demo account can't be deleted.")
     user_id = principal.user.id
     await db.execute(delete(User).where(User.id == user_id))
     logger.info("user_data_deleted", user_id=user_id)

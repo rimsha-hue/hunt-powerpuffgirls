@@ -109,6 +109,17 @@ class TestSessionsAndCsrf:
 
 
 class TestDeleteMyData:
+    def test_the_shared_demo_account_survives(self, client: TestClient) -> None:
+        headers = {"X-CSRF-Token": signup(client, email="demo@example.com")}
+        refused = client.delete("/api/auth/me", headers=headers)
+        assert refused.status_code == 403
+        assert client.get("/api/auth/me").json()["is_demo"] is True
+
+    def test_me_reports_how_the_user_signs_in(self, client: TestClient, csrf: str) -> None:
+        user = client.get("/api/auth/me").json()["user"]
+        assert (user["has_password"], user["google_linked"]) == (True, False)
+        assert user["created_at"]
+
     def test_removes_the_user_and_everything_they_own(self, client: TestClient, csrf: str) -> None:
         headers = {"X-CSRF-Token": csrf}
         assert client.post("/api/resume/sample", headers=headers).status_code == 200

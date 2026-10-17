@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, BookCheck, Briefcase, LogOut, Rocket, Sprout, Wind } from 'lucide-react'
+import { Activity, BookCheck, Briefcase, FileStack, LogOut, Rocket, Sprout, Wind } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api, json, type Me } from '../lib/api'
@@ -13,6 +13,7 @@ const NAV = [
   { to: '/onboarding', label: 'Onboarding', icon: Rocket },
   { to: '/ledger', label: 'Evidence ledger', icon: BookCheck },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
+  { to: '/applications', label: 'Applications', icon: FileStack },
   { to: '/plans', label: 'Growth plans', icon: Sprout },
   { to: '/activity', label: 'Activity', icon: Activity },
 ]
@@ -88,6 +89,25 @@ export function AppLayout() {
           </nav>
           <div className="ml-auto flex items-center gap-2">
             {!scoped && <CalmToggle />}
+            {me && !scoped && (
+              <NavLink
+                to="/profile"
+                className={({ isActive }) =>
+                  cx(
+                    'inline-flex items-center gap-1.5 rounded-lg border-3 px-2 py-1.5 text-sm font-semibold',
+                    isActive ? 'border-ink bg-blossom' : 'border-transparent hover:border-ink',
+                  )
+                }
+              >
+                <span
+                  aria-hidden
+                  className="grid size-6 place-items-center rounded-full border-2 border-ink bg-bubbles text-xs font-bold"
+                >
+                  {(me.user.name || me.user.email).slice(0, 1).toUpperCase()}
+                </span>
+                <span className="hidden sm:inline">Profile</span>
+              </NavLink>
+            )}
             {me && (
               <button
                 type="button"
