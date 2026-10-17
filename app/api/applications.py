@@ -25,6 +25,7 @@ from app.api.schemas import (
     EmailEditIn,
     EmailOut,
     FormOut,
+    TailorIn,
     WaiveIn,
 )
 from app.db.models import Application, Claim, Evidence, Job, ResumeLine, User
@@ -255,7 +256,9 @@ async def tailor_cv(
     taxonomy: Tax,
     similarity: Sim,
     settings: AppSettings,
+    body: TailorIn | None = None,
 ) -> ApplicationOut:
+    """Tailors the CV; with `preferences`, revises it the way the user asked."""
     job = await job_for(db, principal, job_id)
     try:
         application = await prepare(
@@ -267,6 +270,7 @@ async def tailor_cv(
             similarity=similarity,
             threshold=settings.infer_threshold,
             now=datetime.now(UTC),
+            preferences=body.preferences if body else "",
         )
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc

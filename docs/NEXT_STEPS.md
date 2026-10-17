@@ -45,8 +45,10 @@ because the local Python is 3.13 and the project needs 3.12 (see "How to run che
   ("Name (ACR)"), merged in `reconcile` and understood by `Ledger.build`; nav tab renamed "Tailor"
   and plans link back to their job's Tailor. Re-sync the portfolio and re-upload the resume to
   rebuild old rows.
-- Owner's remaining asks, in order: Tailor "revise with instructions" box, CV PDF templates with
-  automatic format checks, UI polish pass. Commit after each.
+- Tailor "revise with instructions" (done, same branch): `POST /jobs/{id}/tailor` takes
+  `{"preferences": "..."}` (max 500); it reaches the model as data and the Verifier checks the result.
+- Owner's remaining asks, in order: CV PDF templates with automatic format checks, UI polish pass.
+  Commit after each.
 
 ## To do, in priority order
 
