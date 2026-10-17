@@ -124,8 +124,10 @@ async def prepare(
     similarity: Similarity,
     threshold: float,
     now: datetime,
+    preferences: str = "",
 ) -> Application:
-    """Tailors and verifies (again, if the CV isn't approved yet) the CV for this job."""
+    """Tailors and verifies (again, if the CV isn't approved yet) the CV for this job.
+    `preferences` is the user's request for this revision ("shorter bullets")."""
     application = (
         await db.execute(select(Application).where(Application.job_id == job.id))
     ).scalar_one_or_none()
@@ -148,6 +150,7 @@ async def prepare(
         keywords=keywords,
         llm=llm,
         taxonomy=taxonomy,
+        preferences=preferences,
     )
     ledger = await load_ledger(db, user.id)
     checked = await verifier.verify(
@@ -190,6 +193,7 @@ async def prepare(
         entity="application",
         entity_id=application.id,
         rewritten=tailored.rewritten,
+        with_preferences=bool(preferences.strip()),
         claims=len(rows),
         needs_you=application.questions_asked,
         blocked=sum(1 for r in rows if r.bucket == "blocked"),

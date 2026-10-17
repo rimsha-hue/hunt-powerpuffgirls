@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { MethodBadge, ScoreChip } from '../components/JobBits'
-import { Button, ErrorNote, FilterChips, Skeleton } from '../components/ui'
+import { Button, ErrorNote, FilterChips, PageHeader, Skeleton } from '../components/ui'
 import { api, json, STATUS_LABELS, type Job, type ScoutRun } from '../lib/api'
 import { useCalm } from '../lib/calm'
 import { postedLabel } from '../lib/time'
@@ -195,25 +195,24 @@ export default function Jobs() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel hearts relative flex flex-wrap items-end justify-between gap-4 overflow-hidden p-6">
-        {!calm && <SpeedLines key={sweep} />}
-        <div className="relative">
-          <h1 className="font-display text-5xl tracking-wide">Jobs</h1>
-          <p className="mt-1 max-w-2xl font-semibold">
-            The Scout searches your target roles and places, scores each job against your evidence ledger, and
-            emails you the strong matches. Nothing is sent to an employer until you approve it.
-          </p>
-        </div>
-        <Button
-          className="relative bg-signal"
-          onClick={() => fetchNow.mutate()}
-          disabled={fetchNow.isPending}
-          aria-busy={fetchNow.isPending}
-        >
-          <Radar className="size-5" aria-hidden />
-          {fetchNow.isPending ? 'Scouting…' : 'Fetch now'}
-        </Button>
-      </section>
+      <PageHeader
+        title="Jobs"
+        decoration={!calm && <SpeedLines key={sweep} />}
+        aside={
+          <Button
+            className="bg-signal"
+            onClick={() => fetchNow.mutate()}
+            disabled={fetchNow.isPending}
+            aria-busy={fetchNow.isPending}
+          >
+            <Radar className="size-5" aria-hidden />
+            {fetchNow.isPending ? 'Scouting…' : 'Fetch now'}
+          </Button>
+        }
+      >
+        The Scout searches your target roles and places, scores each job against your evidence ledger, and emails you
+        the strong matches. Nothing is sent to an employer until you approve it.
+      </PageHeader>
 
       <div className="flex flex-col gap-2">
         <FilterChips label="Which jobs" options={VIEWS} value={view} onChange={setView} />

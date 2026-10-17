@@ -2,8 +2,16 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Search, Trash2 } from 'lucide-react'
 import { useDeferredValue, useState } from 'react'
 import { Link } from 'react-router'
-import { ErrorNote, FilterChips, Skeleton, SourceBadge, TypeTag } from '../components/ui'
-import { api, groupFacts, type Evidence, type FactGroup, type FactSource, type FactType } from '../lib/api'
+import { ErrorNote, FilterChips, PageHeader, Skeleton, SourceBadge, Stat, TypeTag } from '../components/ui'
+import {
+  api,
+  groupFacts,
+  uniqueSources,
+  type Evidence,
+  type FactGroup,
+  type FactSource,
+  type FactType,
+} from '../lib/api'
 import { useToast } from '../lib/toast'
 
 const TYPES: Array<FactType | 'all'> = [
@@ -66,7 +74,7 @@ function FactRow({ group, onDelete }: { group: FactGroup; onDelete: (group: Fact
       </td>
       <td className="sm:px-4 sm:py-3">
         <span className="flex flex-wrap gap-1.5">
-          {group.sources.map((s) => (
+          {uniqueSources(group).map((s) => (
             <SourceBadge key={s.id} fact={s} />
           ))}
         </span>
@@ -134,7 +142,7 @@ function SkillChips({ groups, onDelete }: { groups: FactGroup[]; onDelete: (grou
         >
           {g.claim_text}
           <span className="flex gap-1">
-            {g.sources.map((s) => (
+            {uniqueSources(g).map((s) => (
               <SourceBadge key={s.id} fact={s} />
             ))}
           </span>
@@ -199,18 +207,13 @@ export default function Ledger() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel hearts flex flex-wrap items-end justify-between gap-4 p-6">
-        <div>
-          <h1 className="font-display text-5xl tracking-wide">Evidence ledger</h1>
-          <p className="mt-1 max-w-2xl font-semibold">
-            Every fact the squad may say about you, and where it came from. Hover a badge to see the exact line or
-            link. Delete anything you don't want used.
-          </p>
-        </div>
-        <span className="rounded-lg border-3 border-ink bg-card px-3 py-1.5 font-mono text-sm font-medium">
-          {ledger.isPending ? '…' : `${groups.length} facts · ${rows.length} proofs`}
-        </span>
-      </section>
+      <PageHeader
+        title="Evidence ledger"
+        aside={<Stat>{ledger.isPending ? '…' : `${groups.length} facts · ${rows.length} proofs`}</Stat>}
+      >
+        Every fact the squad may say about you, and where it came from. Hover a badge to see the exact line or link.
+        Delete anything you don't want used.
+      </PageHeader>
 
       <div className="flex flex-col gap-3">
         <label className="relative">

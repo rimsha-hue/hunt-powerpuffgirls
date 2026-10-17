@@ -10,6 +10,7 @@ from app.domain.profile import NoticePeriod, SalaryPeriod, WorkAuthorization
 from app.domain.status import JobStatus
 from app.integrations.github import USERNAME_RE
 from app.services.auth import MIN_PASSWORD_LENGTH
+from app.services.tailor import MAX_PREFERENCES
 
 ShortText = Annotated[str, Field(max_length=100)]
 
@@ -278,6 +279,25 @@ class CvBlockOut(BaseModel):
     line_no: int
     entry: int
     rewritten: bool
+
+
+class CvFormatCheckOut(BaseModel):
+    name: str
+    passed: bool
+    detail: str
+
+
+class CvCheckOut(BaseModel):
+    requested: str  # the template asked for
+    template: str  # the template the download uses (another when the asked one failed a check)
+    checks: list[CvFormatCheckOut]
+
+
+class TailorIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # How the user wants this revision to differ: emphasis, order, length, wording.
+    preferences: str = Field(default="", max_length=MAX_PREFERENCES)
 
 
 class ClaimSourceOut(BaseModel):

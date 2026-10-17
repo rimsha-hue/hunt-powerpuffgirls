@@ -429,14 +429,42 @@ class School:
     surface: str
     start: int
     end: int
+    acronym: str | None = None  # "(NUST)" right after the name
 
     @property
     def key(self) -> str:
         return normalize_org(self.surface)
 
+    @property
+    def text(self) -> str:
+        """The name as stored: "National University of Sciences and Technology (NUST)"."""
+        return f"{self.surface} ({self.acronym})" if self.acronym else self.surface
+
+
+_ALIAS_RE = re.compile(r"^(?P<name>.+?)\s*\((?P<alias>[A-Z][A-Za-z&-]{1,11})\)\s*$")
+_ACRONYM_SKIP = frozenset({"of", "the", "for", "and", "&", "in", "at"})
+
+
+def org_names(text: str) -> tuple[str, ...]:
+    """Every name an organisation goes by in its stored text: "Name (ACR)" is Name and ACR."""
+    match = _ALIAS_RE.match(text.strip())
+    if match:
+        return match.group("name").strip(), match.group("alias")
+    return (text.strip(),)
+
+
+def is_acronym_of(short: str, name: str) -> bool:
+    """True when `short` is the initials of `name`'s words: NUST for National University of
+    Sciences and Technology, LUMS for Lahore University of Management Sciences."""
+    short = short.strip()
+    if not 2 <= len(short) <= 12 or " " in short or not short[:1].isupper():
+        return False
+    words = [w for w in re.findall(r"[A-Za-z]+", name) if w.lower() not in _ACRONYM_SKIP]
+    return len(words) >= 2 and "".join(w[0] for w in words).lower() == short.lower()
+
 
 def find_schools(text: str) -> list[School]:
-    """Schools named in the text, each acronym in brackets as a school of its own."""
+    """Schools named in the text, with the acronym in brackets after a name as its alias."""
     found: list[School] = []
     for m in _SCHOOL_RE.finditer(text):
         name = m.group(0)
@@ -447,8 +475,8 @@ def find_schools(text: str) -> list[School]:
         cut = max((d.end for d in find_degrees(name) if d.end <= noun.start()), default=0)
         cut += len(name[cut:]) - len(name[cut:].lstrip(" ,"))
         start = m.start() + cut
-        found.append(School(text[start : m.end()], start, m.end()))
         acronym = _ACRONYM_RE.match(text, m.end())
-        if acronym:
-            found.append(School(acronym.group(1), acronym.start(1), acronym.end(1)))
+        found.append(
+            School(text[start : m.end()], start, m.end(), acronym.group(1) if acronym else None)
+        )
     return found

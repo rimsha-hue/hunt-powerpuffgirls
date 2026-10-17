@@ -38,7 +38,7 @@ from app.domain.taxonomy import Taxonomy
 from app.integrations.email import Attachment, EmailError, EmailProvider, OutgoingEmail
 from app.integrations.embeddings import Similarity
 from app.integrations.llm import LLMError, StructuredLLM
-from app.integrations.pdf import render_cv, render_letter
+from app.integrations.pdf import checked_cv, render_letter
 from app.services import audit, verifier
 from app.services.applications import WorkspaceError, blocks_of, set_blocks, source_lines
 
@@ -447,7 +447,10 @@ async def send(
         Attachment(
             f"{name} CV {safe_company}.pdf",
             "application/pdf",
-            render_cv(blocks_of(application), title=f"CV for {job.title}"),
+            # The emailed CV passes the same format checks as a download.
+            checked_cv(
+                blocks_of(application), title=f"CV for {job.title}", preferred="classic"
+            ).pdf,
         )
     )
     letter = blocks_of(application, "cover_letter")

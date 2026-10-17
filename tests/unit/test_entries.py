@@ -5,7 +5,7 @@ import pytest
 
 from app.domain.claims import FoundClaim, Ledger, LedgerRow, code_claims, merge, pair_up, route
 from app.domain.ledger import Fact, accept_proposed_facts, extract_facts_by_code, reconcile
-from app.domain.normalize import find_schools
+from app.domain.normalize import find_schools, is_acronym_of
 from app.domain.resume import split_resume
 from app.domain.taxonomy import Taxonomy, default_taxonomy
 from app.services.verifier import pair_of
@@ -43,7 +43,7 @@ class TestFindSchools:
         [
             (
                 "National University of Sciences and Technology (NUST), Islamabad",
-                ["National University of Sciences and Technology", "NUST"],
+                ["National University of Sciences and Technology (NUST)"],
             ),
             (
                 "BS Data Science, Lahore University of Management Sciences",
@@ -60,7 +60,47 @@ class TestFindSchools:
         ],
     )
     def test_names_and_acronyms(self, text: str, schools: list[str]) -> None:
-        assert [s.surface for s in find_schools(text)] == schools
+        assert [s.text for s in find_schools(text)] == schools
+
+    @pytest.mark.parametrize(
+        ("short", "name", "same"),
+        [
+            ("NUST", "National University of Sciences and Technology", True),
+            ("LUMS", "Lahore University of Management Sciences", True),
+            ("NUST", "Lahore University of Management Sciences", False),
+            ("AI", "Acme Industries", True),
+            ("Acme", "Acme Industries", False),  # a shorter name is not an acronym
+        ],
+    )
+    def test_acronyms(self, short: str, name: str, same: bool) -> None:
+        assert is_acronym_of(short, name) is same
+
+
+class TestOneSchoolByAnyName:
+    def test_an_acronym_joins_its_school(self, tax: Taxonomy) -> None:
+        full = "National University of Sciences and Technology (NUST)"
+        facts = [
+            Fact("NUST", "school", "nust", 2, "entry"),
+            Fact(full, "school", "national university of sciences and technology", 2, "entry"),
+        ]
+        assert [f.claim_text for f in reconcile(facts, [], tax)] == [full]
+
+    def test_the_ledger_proves_both_names(self, tax: Taxonomy) -> None:
+        full = "National University of Sciences and Technology (NUST)"
+        ledger = Ledger.build([LedgerRow("school", "x", full, "e")])
+        assert ledger.has("school", "nust") and ledger.has(
+            "school", "national university of sciences and technology"
+        )
+        assert set(ledger.names["school"]) == {
+            "National University of Sciences and Technology",
+            "NUST",
+        }
+
+    def test_pages_do_not_turn_every_line_into_a_title(self, tax: Taxonomy) -> None:
+        page = split_resume("ACHIEVEMENTS\nPython\nLet's Connect\nCERTIFICATIONS\nEmail\n")
+        assert extract_facts_by_code(page, tax, titled_sections=False) == [
+            f for f in extract_facts_by_code(page, tax) if f.type == "skill"
+        ]
 
 
 @pytest.fixture(scope="module")
@@ -71,8 +111,7 @@ def facts(tax: Taxonomy) -> list[Fact]:
 class TestEducationEntries:
     def test_degree_school_and_gpa_share_their_entry(self, facts: list[Fact]) -> None:
         schools = by_type(facts, "school")
-        assert schools["national university of sciences and technology"] == schools["nust"]
-        entry = schools["nust"]
+        entry = schools["national university of sciences and technology"]
         assert entry is not None and entry.startswith("National University of Sciences")
         assert by_type(facts, "degree")["bachelor|data science"] == entry
         gpa = next(f for f in facts if f.type == "metric" and "gpa" in f.normalized_value)
@@ -80,7 +119,7 @@ class TestEducationEntries:
 
     def test_each_school_is_its_own_entry(self, facts: list[Fact]) -> None:
         schools = by_type(facts, "school")
-        assert schools["roots college"] != schools["nust"]
+        assert schools["roots college"] != schools["national university of sciences and technology"]
         degrees = {f.normalized_value: f.context for f in facts if f.type == "degree"}
         assert schools["roots college"] in degrees.values()
 

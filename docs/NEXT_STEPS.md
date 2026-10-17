@@ -35,6 +35,27 @@ because the local Python is 3.13 and the project needs 3.12 (see "How to run che
 - Workspace: "Compare with your words (N changed)", "Open their form" link, Coach panel on the job
   page ("Grow into this job").
 
+## Later in the session (about 08:30 PKT)
+
+- PR #17 merged; Neon at **0013** (`skill_plans.ideas_json`).
+- Branch `feat/coach-project-ideas`: Coach project ideas with PDF/Markdown one-page proposals
+  (done), plus ledger fixes: titled sections (certifications, awards, publications) are read
+  one-per-line from resumes only, never from portfolio pages; the extraction schema rejects bad
+  items one by one instead of failing the whole answer; a school's acronym is an alias of one fact
+  ("Name (ACR)"), merged in `reconcile` and understood by `Ledger.build`; nav tab renamed "Tailor"
+  and plans link back to their job's Tailor. Re-sync the portfolio and re-upload the resume to
+  rebuild old rows.
+- Tailor "revise with instructions" (done, same branch): `POST /jobs/{id}/tailor` takes
+  `{"preferences": "..."}` (max 500); it reaches the model as data and the Verifier checks the result.
+- CV templates with format checks (done, same branch): classic, compact, modern
+  (`integrations/pdf.py` STYLES); every CV is read back with pdfplumber and checked
+  (`domain/cv_format.py`: readable, at most 2 pages, name first, sections in order); a failing
+  template falls back to one that passes. `GET .../cv-check?template=` and `cv.pdf?template=`.
+- UI polish, first pass (done, same branch): one-row sticky header (labels show at xl, accessible
+  names below), wider page (max-w-7xl), shared `PageHeader` and `Stat` in `components/ui.tsx` used by
+  every page. Further polish ideas: consistent empty states, card spacing on Jobs/Tailor, a
+  screenshot-driven pass with the owner.
+
 ## To do, in priority order
 
 1. **Merge PR #17** after CI.

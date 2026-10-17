@@ -14,7 +14,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router'
-import { Button, ErrorNote, Panel, Skeleton } from '../components/ui'
+import { Button, ErrorNote, PageHeader, Panel, Skeleton, Stat } from '../components/ui'
 import { api, json, type Plan, type PlanStatus, type PlanVerify } from '../lib/api'
 import { useCalm } from '../lib/calm'
 import { cx } from '../lib/cx'
@@ -351,6 +351,10 @@ function PlanCard({ plan, focused }: { plan: Plan; focused: boolean }) {
                 <Link to={`/jobs/${plan.job_id}`} className="font-semibold underline">
                   {plan.job_title}
                 </Link>
+                {' · '}
+                <Link to={`/jobs/${plan.job_id}/workspace`} className="font-semibold underline">
+                  Back to the Tailor
+                </Link>
               </>
             ) : (
               'Made by the Coach'
@@ -378,18 +382,13 @@ export default function Plans() {
   const verified = rows.filter((p) => p.status === 'verified').length
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel hearts flex flex-wrap items-end justify-between gap-4 p-6">
-        <div>
-          <h1 className="font-display text-5xl tracking-wide">Growth plans</h1>
-          <p className="mt-1 max-w-2xl font-semibold">
-            A skill gap becomes a plan, not a lie. Build the project, link the repo, and Power Hunt checks it on GitHub.
-            When every check passes, the skill joins your ledger.
-          </p>
-        </div>
-        <span className="rounded-lg border-3 border-ink bg-card px-3 py-1.5 font-mono text-sm font-medium">
-          {plans.isPending ? '…' : `${rows.length} plans · ${verified} verified`}
-        </span>
-      </section>
+      <PageHeader
+        title="Growth plans"
+        aside={<Stat>{plans.isPending ? '…' : `${rows.length} plans · ${verified} verified`}</Stat>}
+      >
+        A skill gap becomes a plan, not a lie. Build the project, link the repo, and Power Hunt checks it on GitHub.
+        When every check passes, the skill joins your ledger.
+      </PageHeader>
 
       {plans.isPending && <Skeleton className="h-64" />}
       {plans.error && <ErrorNote>{plans.error.message}</ErrorNote>}

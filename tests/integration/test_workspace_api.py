@@ -31,11 +31,13 @@ class ScriptedLLM:
     def __init__(self, payloads: Mapping[str, dict[str, Any]]) -> None:
         self.payloads = dict(payloads)
         self.calls: list[str] = []
+        self.data: dict[str, Mapping[str, str]] = {}  # the last data sent, per schema
 
     async def generate(
         self, *, schema: type[T], system: str, task: str, data: Mapping[str, str]
     ) -> T:
         self.calls.append(schema.__name__)
+        self.data[schema.__name__] = data
         return schema.model_validate(self.payloads.get(schema.__name__, {}))
 
 
@@ -119,6 +121,22 @@ class TestWorkspace:
         assert any(c["bucket"] == "blocked" and c["text"] == "45%" for c in again["claims"])
         assert not any("45%" in b["text"] for b in again["blocks"])
         assert again["questions_asked"] < app["questions_asked"] + 2
+
+    def test_revising_with_preferences_is_still_verified(
+        self, ws: TestClient, llm: ScriptedLLM
+    ) -> None:
+        headers, (job_id, _) = _setup(ws)
+        wanted = "Lead with the Redis work and keep bullets short."
+        app = ws.post(
+            f"/api/jobs/{job_id}/tailor", json={"preferences": wanted}, headers=headers
+        ).json()
+        assert llm.data["TailorOutput"]["candidate_preferences"] == wanted
+        # The scripted rewrite plants "45%"; preferences never let it through unchecked.
+        assert _claim(app, "45%")["bucket"] == "needs_you"
+        too_long = ws.post(
+            f"/api/jobs/{job_id}/tailor", json={"preferences": "x" * 501}, headers=headers
+        )
+        assert too_long.status_code == 422
 
     def test_edit_rewords_and_routes_again(self, ws: TestClient) -> None:
         headers, (job_id, _) = _setup(ws)

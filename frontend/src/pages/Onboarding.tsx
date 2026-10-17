@@ -4,7 +4,7 @@ import { useState, type ChangeEvent, type DragEvent } from 'react'
 import { Link } from 'react-router'
 import { ChipInput, type Chip } from '../components/ChipInput'
 import { FactList } from '../components/FactList'
-import { Button, ErrorNote, Field, Panel, PanelTitle, Skeleton } from '../components/ui'
+import { Button, ErrorNote, Field, PageHeader, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { cx } from '../lib/cx'
 import { useToast } from '../lib/toast'
 import {
@@ -347,13 +347,10 @@ export default function Onboarding() {
   const data = profile.data
   return (
     <div className="flex flex-col gap-6">
-      <section className="panel hearts p-6">
-        <h1 className="font-display text-5xl tracking-wide">Suit up</h1>
-        <p className="mt-2 max-w-2xl font-semibold">
-          Your squad only writes what it can prove. Give it your resume and GitHub, and watch the evidence ledger
-          build itself, fact by fact, each with its source.
-        </p>
-      </section>
+      <PageHeader title="Suit up">
+        Your squad only writes what it can prove. Give it your resume and GitHub, and watch the evidence ledger build
+        itself, fact by fact, each with its source.
+      </PageHeader>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_minmax(0,26rem)]">
         <div className="flex flex-col gap-6">

@@ -16,8 +16,10 @@ from app.domain.normalize import (
     find_degrees,
     find_quantities,
     find_schools,
+    is_acronym_of,
     normalize_org,
     normalize_text,
+    org_names,
 )
 from app.domain.resume import DATE_RANGE_RE, ParsedLine, heading_section
 from app.domain.roles import HEAD_NOUNS
@@ -211,7 +213,8 @@ def normalize_fact(fact_type: FactType, claim_text: str, taxonomy: Taxonomy) -> 
             # Prefer the most specific reading (one that names a field).
             return max(degrees, key=lambda d: bool(d.field)).key
         case "employer" | "school":
-            return normalize_org(claim_text) or None
+            # "Name (ACR)" is keyed by its name; the acronym is an alias (claims.Ledger).
+            return normalize_org(org_names(claim_text)[0]) or None
         case _:
             return normalize_text(claim_text) or None
 
@@ -348,7 +351,9 @@ def _metric_facts(line: ParsedLine, context: str | None) -> list[Fact]:
     return facts
 
 
-def extract_facts_by_code(lines: Iterable[ParsedLine], taxonomy: Taxonomy) -> list[Fact]:
+def extract_facts_by_code(
+    lines: Iterable[ParsedLine], taxonomy: Taxonomy, *, titled_sections: bool = True
+) -> list[Fact]:
     """Deterministic pass: skills, degrees, schools, titled facts and metrics. Works without any
     LLM. Degrees, schools and metrics carry the entry they belong to."""
     lines = list(lines)
@@ -368,8 +373,11 @@ def extract_facts_by_code(lines: Iterable[ParsedLine], taxonomy: Taxonomy) -> li
         if school_counts_as_evidence(line):
             for school in find_schools(line.text):
                 if school.key:
-                    facts.append(Fact(school.surface, "school", school.key, line.line_no, entry))
-        titled = TITLED_SECTIONS.get(line.section)
+                    facts.append(Fact(school.text, "school", school.key, line.line_no, entry))
+        # One fact per line holds for a resume's Certifications or Awards list. On a web page a
+        # heading is a design choice ("Achievements" over a row of skill tags, a contact form
+        # under the last heading), so there titled facts come only from the checked LLM pass.
+        titled = TITLED_SECTIONS.get(line.section) if titled_sections else None
         # Certifications and awards are one per line; a publication is its title line, and the
         # bullets under it describe it.
         if titled and not (line.section == "publications" and line.bulleted):
@@ -508,12 +516,29 @@ def reconcile(
     reading that holds more numbers wins ("88%" folds into "88% ... 25 labels").
     """
     meaning = _meaning_words(taxonomy)
-    known = [(t, v, fact_words(c, taxonomy)) for t, v, c in existing]
+    known = [(t, v, fact_words(c, taxonomy), c) for t, v, c in existing]
+
+    def same_org(text_a: str, text_b: str) -> bool:
+        """One organisation by its acronym and its name: "NUST" and "National University of
+        Sciences and Technology (NUST)"."""
+        names_a, names_b = org_names(text_a), org_names(text_b)
+        return any(
+            a.lower() == b.lower() or is_acronym_of(a, b) or is_acronym_of(b, a)
+            for a in names_a
+            for b in names_b
+        )
 
     def same(
-        kind: str, value_a: str, words_a: frozenset[str], value_b: str, words_b: frozenset[str]
+        kind: str,
+        value_a: str,
+        words_a: frozenset[str],
+        value_b: str,
+        words_b: frozenset[str],
+        texts: tuple[str, str],
     ) -> bool:
         if value_a == value_b:
+            return True
+        if kind in ("employer", "school") and same_org(*texts):
             return True
         if kind == "metric":
             keys_a, keys_b = _metric_keys(value_a), _metric_keys(value_b)
@@ -527,8 +552,8 @@ def reconcile(
     kept: list[tuple[Fact, frozenset[str]]] = []
     for fact in facts:
         words = fact_words(fact.claim_text, taxonomy)
-        for t, v, w in known:
-            if t == fact.type and same(t, fact.normalized_value, words, v, w):
+        for t, v, w, c in known:
+            if t == fact.type and same(t, fact.normalized_value, words, v, w, (fact.claim_text, c)):
                 fact = replace(fact, normalized_value=v)
                 break
         for index, (other, other_words) in enumerate(kept):
@@ -537,12 +562,23 @@ def reconcile(
                 other.type == fact.type
                 and other.context == fact.context
                 and same(
-                    fact.type, fact.normalized_value, words, other.normalized_value, other_words
+                    fact.type,
+                    fact.normalized_value,
+                    words,
+                    other.normalized_value,
+                    other_words,
+                    (fact.claim_text, other.claim_text),
                 )
             ):
-                richer = fact.type == "metric" and len(_metric_keys(fact.normalized_value)) > len(
-                    _metric_keys(other.normalized_value)
-                )
+                # The fuller reading stays: more numbers for a metric, a name over its acronym.
+                if fact.type == "metric":
+                    richer = len(_metric_keys(fact.normalized_value)) > len(
+                        _metric_keys(other.normalized_value)
+                    )
+                else:
+                    richer = fact.type in ("employer", "school") and len(fact.claim_text) > len(
+                        other.claim_text
+                    )
                 if richer:
                     kept[index] = (fact, words)
                 break

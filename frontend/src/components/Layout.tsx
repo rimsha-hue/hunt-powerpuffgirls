@@ -13,7 +13,7 @@ const NAV = [
   { to: '/onboarding', label: 'Onboarding', icon: Rocket },
   { to: '/ledger', label: 'Evidence ledger', icon: BookCheck },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
-  { to: '/applications', label: 'Applications', icon: FileStack },
+  { to: '/applications', label: 'Tailor', icon: FileStack },
   { to: '/plans', label: 'Growth plans', icon: Sprout },
   { to: '/activity', label: 'Activity', icon: Activity },
 ]
@@ -43,13 +43,14 @@ function CalmToggle() {
       aria-checked={on}
       onClick={() => mutation.mutate(!on)}
       className={cx(
-        'inline-flex items-center gap-2 rounded-full border-3 border-ink px-3 py-1 font-mono text-xs font-medium',
+        'inline-flex items-center gap-1.5 rounded-full border-2 border-ink px-2.5 py-1 font-mono text-xs font-medium',
         on ? 'bg-bubbles' : 'bg-card',
       )}
       title="Calm mode turns every animation off"
     >
       <Wind className="size-4" aria-hidden />
-      Calm mode {on ? 'on' : 'off'}
+      <span className="hidden xl:inline">Calm {on ? 'on' : 'off'}</span>
+      <span className="sr-only xl:hidden">Calm mode {on ? 'on' : 'off'}</span>
     </button>
   )
 }
@@ -65,19 +66,22 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b-3 border-ink bg-card">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-          <NavLink to="/" aria-label="Power Hunt home">
+      <header className="sticky top-0 z-30 border-b-3 border-ink bg-card/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-6 lg:flex-nowrap">
+          <NavLink to="/" aria-label="Power Hunt home" className="shrink-0">
             <Logo />
           </NavLink>
-          <nav className="order-3 flex w-full gap-2 overflow-x-auto sm:order-none sm:ml-6 sm:w-auto" aria-label="Main">
+          <nav
+            className="order-3 flex w-full gap-1 overflow-x-auto lg:order-none lg:w-auto lg:flex-1 lg:justify-center"
+            aria-label="Main"
+          >
             {!scoped && NAV.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
                 className={({ isActive }) =>
                   cx(
-                    'inline-flex shrink-0 items-center gap-1.5 rounded-lg border-3 px-3 py-1.5 text-sm font-semibold',
+                    'inline-flex shrink-0 items-center gap-1.5 rounded-lg border-2 px-2.5 py-1.5 text-sm font-semibold',
                     isActive ? 'border-ink bg-blossom shadow-comic-sm' : 'border-transparent hover:border-ink',
                   )
                 }
@@ -87,11 +91,12 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {!scoped && <CalmToggle />}
             {me && !scoped && (
               <NavLink
                 to="/profile"
+                aria-label="Profile"
                 className={({ isActive }) =>
                   cx(
                     'inline-flex items-center gap-1.5 rounded-lg border-3 px-2 py-1.5 text-sm font-semibold',
@@ -105,24 +110,25 @@ export function AppLayout() {
                 >
                   {(me.user.name || me.user.email).slice(0, 1).toUpperCase()}
                 </span>
-                <span className="hidden sm:inline">Profile</span>
+                <span className="hidden xl:inline">Profile</span>
               </NavLink>
             )}
             {me && (
               <button
                 type="button"
                 onClick={() => logout.mutate(undefined, { onSettled: () => navigate('/login') })}
+                aria-label="Log out"
                 className="inline-flex items-center gap-1.5 rounded-lg border-3 border-transparent px-2 py-1.5 text-sm font-semibold hover:border-ink"
               >
                 <LogOut className="size-4" aria-hidden />
-                <span className="hidden sm:inline">Log out</span>
+                <span className="hidden xl:inline">Log out</span>
               </button>
             )}
           </div>
         </div>
       </header>
 
-      <main className="relative mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
+      <main className="relative mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
         <Outlet />
         {/* Panel wipe on navigation: decorative, 200 ms, never delays the page underneath. */}
         <AnimatePresence>

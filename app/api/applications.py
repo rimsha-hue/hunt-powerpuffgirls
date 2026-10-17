@@ -4,6 +4,7 @@ the CV and download it as a PDF. An Apply-link session may work on its own job h
 from datetime import UTC, datetime
 from typing import Annotated
 
+import anyio
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import select
@@ -22,17 +23,21 @@ from app.api.schemas import (
     ClaimSourceOut,
     CompanyFactOut,
     CvBlockOut,
+    CvCheckOut,
+    CvFormatCheckOut,
     EmailEditIn,
     EmailOut,
     FormOut,
+    TailorIn,
     WaiveIn,
 )
 from app.db.models import Application, Claim, Evidence, Job, ResumeLine, User
 from app.domain.compose import prose_text
 from app.domain.cv import Block
+from app.domain.cv_format import CvTemplate
 from app.domain.uploads import UploadRejectedError, sniff_resume
 from app.integrations.embeddings import Similarity
-from app.integrations.pdf import render_cv, render_letter
+from app.integrations.pdf import CheckedCv, checked_cv, render_letter
 from app.services import composer, form_apply
 from app.services.applications import WorkspaceError, approve_cv, blocks_of, decide, prepare
 from app.services.verifier import DecisionError
@@ -255,7 +260,9 @@ async def tailor_cv(
     taxonomy: Tax,
     similarity: Sim,
     settings: AppSettings,
+    body: TailorIn | None = None,
 ) -> ApplicationOut:
+    """Tailors the CV; with `preferences`, revises it the way the user asked."""
     job = await job_for(db, principal, job_id)
     try:
         application = await prepare(
@@ -267,6 +274,7 @@ async def tailor_cv(
             similarity=similarity,
             threshold=settings.infer_threshold,
             now=datetime.now(UTC),
+            preferences=body.preferences if body else "",
         )
     except WorkspaceError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
@@ -321,23 +329,50 @@ async def approve(job_id: int, principal: AnyPrincipal, db: Db) -> ApplicationOu
     return await application_out(db, application, job)
 
 
-@router.get("/jobs/{job_id}/application/cv.pdf")
-async def cv_pdf(job_id: int, principal: AnyPrincipal, db: Db) -> Response:
+async def _checked_cv(
+    db: Db, principal: Principal, job_id: int, template: CvTemplate
+) -> tuple[Job, CheckedCv]:
     job = await job_for(db, principal, job_id)
     application = await application_for(db, job)
     if application.status == "draft":
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Approve the CV first; then it can be downloaded."
         )
-    pdf = render_cv(blocks_of(application), title=f"CV for {job.title}")
+    blocks = blocks_of(application)
+    # Rendering and reading back are CPU work; keep them off the event loop.
+    result = await anyio.to_thread.run_sync(
+        lambda: checked_cv(blocks, title=f"CV for {job.title}", preferred=template)
+    )
+    return job, result
+
+
+@router.get("/jobs/{job_id}/application/cv.pdf")
+async def cv_pdf(
+    job_id: int, principal: AnyPrincipal, db: Db, template: CvTemplate = "classic"
+) -> Response:
+    job, cv = await _checked_cv(db, principal, job_id, template)
     filename = "".join(ch if ch.isalnum() else "-" for ch in f"cv-{job.company}")[:60]
     return Response(
-        pdf,
+        cv.pdf,
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}.pdf"',
             "Cache-Control": "no-store",
+            "X-CV-Template": cv.template,
         },
+    )
+
+
+@router.get("/jobs/{job_id}/application/cv-check")
+async def cv_check(
+    job_id: int, principal: AnyPrincipal, db: Db, template: CvTemplate = "classic"
+) -> CvCheckOut:
+    """The format checks for the CV in a template, and the template the download will use."""
+    _, cv = await _checked_cv(db, principal, job_id, template)
+    return CvCheckOut(
+        requested=template,
+        template=cv.template,
+        checks=[CvFormatCheckOut(name=c.name, passed=c.passed, detail=c.detail) for c in cv.checks],
     )
 
 
