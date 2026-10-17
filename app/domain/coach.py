@@ -153,6 +153,168 @@ def template_plan(skill: str) -> PlanText:
     )
 
 
+# ---- Project ideas -----------------------------------------------------------------------------
+#
+# The steps say how to prove a skill; ideas say what to build. Each idea is a concrete product
+# with a one-page proposal the user can download and pitch or follow.
+
+MIN_IDEAS = 2
+MAX_IDEAS = 3
+MIN_MILESTONES = 3
+MAX_MILESTONES = 5
+MAX_SCOPE = 5
+MAX_STACK = 6
+MAX_IDEA_TEXT = 300
+
+
+@dataclass(frozen=True)
+class ProjectIdea:
+    title: str
+    pitch: str  # what it is, in one or two sentences
+    problem: str  # who has the problem and why it matters
+    scope: tuple[str, ...]  # what the first version does
+    stack: tuple[str, ...]
+    milestones: tuple[str, ...]
+    proof: str  # how the finished repo proves the skill
+    hours: int
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "title": self.title,
+            "pitch": self.pitch,
+            "problem": self.problem,
+            "scope": list(self.scope),
+            "stack": list(self.stack),
+            "milestones": list(self.milestones),
+            "proof": self.proof,
+            "hours": self.hours,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, object]) -> "ProjectIdea":
+        def strings(key: str) -> tuple[str, ...]:
+            value = data.get(key)
+            return tuple(str(v) for v in value) if isinstance(value, list) else ()
+
+        hours = data.get("hours")
+        return cls(
+            title=str(data.get("title", "")),
+            pitch=str(data.get("pitch", "")),
+            problem=str(data.get("problem", "")),
+            scope=strings("scope"),
+            stack=strings("stack"),
+            milestones=strings("milestones"),
+            proof=str(data.get("proof", "")),
+            hours=hours if isinstance(hours, int) else TEMPLATE_HOURS,
+        )
+
+
+def normalize_idea(idea: ProjectIdea) -> ProjectIdea:
+    return ProjectIdea(
+        clean(idea.title),
+        clean(idea.pitch),
+        clean(idea.problem),
+        tuple(clean(s) for s in idea.scope if clean(s)),
+        tuple(clean(s) for s in idea.stack if clean(s)),
+        tuple(clean(s) for s in idea.milestones if clean(s)),
+        clean(idea.proof),
+        idea.hours,
+    )
+
+
+def idea_problems(idea: ProjectIdea, skill: str, taxonomy: Taxonomy) -> list[str]:
+    """Why an idea can't be shown, empty when it can: sizes, style, and it must use the skill."""
+    problems: list[str] = []
+    if not idea.title or len(idea.title) > MAX_TITLE:
+        problems.append(f"the title must be 1 to {MAX_TITLE} characters")
+    texts = (idea.pitch, idea.problem, idea.proof, *idea.scope, *idea.milestones)
+    if any(not t or len(t) > MAX_IDEA_TEXT for t in texts):
+        problems.append(f"every text must be 1 to {MAX_IDEA_TEXT} characters")
+    if not MIN_MILESTONES <= len(idea.milestones) <= MAX_MILESTONES:
+        problems.append(f"needs {MIN_MILESTONES} to {MAX_MILESTONES} milestones")
+    if not 1 <= len(idea.scope) <= MAX_SCOPE or not 1 <= len(idea.stack) <= MAX_STACK:
+        problems.append("needs a short scope and stack")
+    if not MIN_HOURS <= idea.hours <= MAX_HOURS:
+        problems.append(f"the estimate must be {MIN_HOURS} to {MAX_HOURS} hours")
+    for text in (idea.title, *texts):
+        problems.extend(style_problems(text))
+    used = taxonomy.skills_in(" ".join((idea.title, idea.pitch, *idea.stack, *idea.milestones)))
+    if skill.lower() not in {s.lower() for s in used}:
+        problems.append(f"never uses {skill}")
+    return list(dict.fromkeys(problems))
+
+
+def template_ideas(skill: str) -> list[ProjectIdea]:
+    """Ideas that are always usable, for when no LLM is available or its drafts broke the rules."""
+    shapes = [
+        (
+            f"{skill} command line helper",
+            "a small command line tool",
+            "people who repeat the same chore by hand every week",
+        ),
+        (
+            f"{skill} web service with a public demo",
+            "a small web service with one useful endpoint and a demo page",
+            "a team or club that needs one task automated and shared",
+        ),
+        (
+            f"{skill} data study of an open dataset",
+            "a short analysis of a public dataset with a clear finding",
+            "readers who want a question about a public dataset answered with evidence",
+        ),
+    ]
+    return [
+        ProjectIdea(
+            title=title,
+            pitch=f"Build {shape} that uses {skill} for its core job.",
+            problem=f"It helps {who}.",
+            scope=(
+                f"One core feature built with {skill}",
+                "A README with setup steps and a screenshot or sample output",
+                "A test or demo script that shows it working",
+            ),
+            stack=(skill, "Git", "GitHub"),
+            milestones=(
+                f"Write the README: the problem, the users and how {skill} solves it.",
+                f"Build the core feature with {skill} and commit as you go.",
+                "Add a test or demo, then publish the repo with clear topics.",
+            ),
+            proof=f"A public repo whose main code uses {skill}, which Power Hunt checks on GitHub.",
+            hours=TEMPLATE_HOURS,
+        )
+        for title, shape, who in shapes
+    ]
+
+
+def proposal_markdown(idea: ProjectIdea, skill: str) -> str:
+    """The one-page proposal as Markdown."""
+    lines = [
+        f"# {idea.title}",
+        "",
+        f"*A project that proves {skill}. About {idea.hours} hours.*",
+        "",
+        "## What it is",
+        idea.pitch,
+        "",
+        "## The problem",
+        idea.problem,
+        "",
+        "## First version",
+        *(f"- {item}" for item in idea.scope),
+        "",
+        "## Stack",
+        ", ".join(idea.stack),
+        "",
+        "## Milestones",
+        *(f"{i}. {m}" for i, m in enumerate(idea.milestones, start=1)),
+        "",
+        f"## How it proves {skill}",
+        idea.proof,
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def acceptance(username: str | None, skill: str, since: datetime, min_commits: int) -> list[str]:
     """The checks Power Hunt runs on a linked repo, in the user's words."""
     owner = (
