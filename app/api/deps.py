@@ -63,7 +63,10 @@ async def get_locations(request: Request) -> LocationIndex:
     return index
 
 
-Db = Annotated[AsyncSession, Depends(get_db)]
+# scope="function": the commit runs when the endpoint returns, before the response is sent. With
+# the default, it ran after the response (and after background tasks such as a sign-in email), so
+# a client acting on the response at once (the first page after login) could read uncommitted data.
+Db = Annotated[AsyncSession, Depends(get_db, scope="function")]
 AppSettings = Annotated[Settings, Depends(get_settings_dep)]
 LLM = Annotated[StructuredLLM, Depends(get_llm)]
 Tax = Annotated[Taxonomy, Depends(get_taxonomy)]

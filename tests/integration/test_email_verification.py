@@ -4,8 +4,10 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 from app.config import Settings
+from app.db.models import AuthSession
 from app.integrations.email import OutgoingEmail
 from app.main import create_app
 from tests.conftest import LOCATIONS, PASSWORD, VERIFY_LINK, FakeLLM, signup
@@ -86,6 +88,30 @@ class TestSignInAlerts:
         [alert] = outbox.sent
         assert alert.subject == "New sign-in to your Power Hunt account"
         assert "password" in alert.text
+
+    def test_the_new_session_is_saved_before_the_alert_goes_out(
+        self, mail_client: TestClient, outbox: Outbox
+    ) -> None:
+        """The response must not wait on the commit: the browser loads the next page at once."""
+        signup(mail_client)
+        mail_client.cookies.clear()
+        factory = mail_client.app.state.session_factory  # type: ignore[attr-defined]
+        saved_sessions: list[int] = []
+
+        async def send(message: OutgoingEmail) -> str:
+            async with factory() as db:  # a separate connection sees only committed rows
+                count = await db.scalar(select(func.count()).select_from(AuthSession))
+                saved_sessions.append(int(count or 0))
+            outbox.sent.append(message)
+            return "<alert@test>"
+
+        outbox.send = send  # type: ignore[method-assign]
+        mail_client.post(
+            "/api/auth/login", json={"email": "hero@example.com", "password": PASSWORD}
+        )
+        # Signup's session was ended by clearing cookies only; the login adds a second one.
+        assert saved_sessions == [2]
+        assert mail_client.get("/api/profile").status_code == 200
 
     def test_an_unverified_address_gets_no_alerts(
         self, mail_client: TestClient, outbox: Outbox

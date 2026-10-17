@@ -5,7 +5,7 @@ description = "Human-in-the-loop job application agent. No source, no claim."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastapi>=0.115,<1.0",
+    "fastapi>=0.121,<1.0",
     "uvicorn[standard]>=0.32,<1.0",
     "pydantic[email]>=2.9,<3.0",
     "pydantic-settings>=2.6,<3.0",
