@@ -1,4 +1,4 @@
-"""Signup, login, logout, current user and "Delete my data"."""
+"""Signup, login, logout, password reset and change, current user and "Delete my data"."""
 
 from datetime import UTC, datetime
 
@@ -9,10 +9,19 @@ from sqlalchemy import delete
 
 from app.api.deps import SESSION_COOKIE, AnyPrincipal, AppSettings, CurrentUser, Db
 from app.api.ratelimit import rate_limit
-from app.api.schemas import LoginIn, MeOut, SignupIn, UserOut
+from app.api.schemas import (
+    ChangePasswordIn,
+    ForgotPasswordIn,
+    LoginIn,
+    MeOut,
+    ResetPasswordIn,
+    SignupIn,
+    UserOut,
+)
 from app.db.models import User
 from app.integrations import google_oauth
-from app.services import audit, verification
+from app.integrations.email import OutgoingEmail
+from app.services import audit, mailer, passwords, verification
 from app.services.auth import (
     authenticate,
     create_session,
@@ -63,6 +72,21 @@ def me_out(
     )
 
 
+def _queue(
+    request: Request,
+    tasks: BackgroundTasks,
+    db: Db,
+    user: User,
+    message: OutgoingEmail,
+    kind: str,
+) -> None:
+    """Sends after the response, so a mail outage never fails the request, and logs the kind."""
+    email = request.app.state.email
+    if email.configured:
+        mailer.record(db, user.id, kind, datetime.now(UTC))
+    tasks.add_task(verification.send_quietly, email, message, event=f"{kind}_email")
+
+
 def _send_verification(
     request: Request, tasks: BackgroundTasks, db: Db, user: User, settings: AppSettings
 ) -> None:
@@ -70,13 +94,25 @@ def _send_verification(
     message = verification.verification_email(
         user, verification.link(settings.base_url, token), settings.email_verify_hours
     )
-    tasks.add_task(
-        verification.send_quietly, request.app.state.email, message, event="verify_email"
-    )
+    _queue(request, tasks, db, user, message, "verify")
+
+
+def _welcome(
+    request: Request, tasks: BackgroundTasks, db: Db, user: User, settings: AppSettings
+) -> None:
+    """The welcome email, once, as soon as the address is proven."""
+    message = verification.welcome_once(user, settings.base_url, datetime.now(UTC))
+    if message is not None:
+        _queue(request, tasks, db, user, message, "welcome")
 
 
 def _alert_sign_in(
-    request: Request, tasks: BackgroundTasks, user: User, settings: AppSettings, method: str
+    request: Request,
+    tasks: BackgroundTasks,
+    db: Db,
+    user: User,
+    settings: AppSettings,
+    method: str,
 ) -> None:
     """A sign-in alert to a verified address (an unverified one may not be the user's)."""
     if not settings.login_alerts or not user.email_verified:
@@ -87,7 +123,7 @@ def _alert_sign_in(
         method=method,
         ip=request.client.host if request.client else None,
     )
-    tasks.add_task(verification.send_quietly, request.app.state.email, message, event="login_alert")
+    _queue(request, tasks, db, user, message, "alert")
 
 
 @router.post(
@@ -114,12 +150,15 @@ async def signup(
 
 
 @router.get("/verify", include_in_schema=False, dependencies=[Depends(rate_limit("login"))])
-async def verify_email(db: Db, t: str = "") -> RedirectResponse:
+async def verify_email(
+    request: Request, tasks: BackgroundTasks, db: Db, settings: AppSettings, t: str = ""
+) -> RedirectResponse:
     """The link from the verification email. It needs no session: it may open in another browser."""
     try:
-        await verification.confirm(db, t, now=datetime.now(UTC))
+        user = await verification.confirm(db, t, now=datetime.now(UTC))
     except verification.VerificationError:
         return RedirectResponse("/profile?verified=failed", status_code=status.HTTP_302_FOUND)
+    _welcome(request, tasks, db, user, settings)
     return RedirectResponse("/profile?verified=1", status_code=status.HTTP_302_FOUND)
 
 
@@ -154,17 +193,117 @@ async def login(
     db: Db,
     settings: AppSettings,
 ) -> MeOut:
+    limiter = request.app.state.rate_limiter
+    account = body.email.strip().lower()
+    wait = await limiter.blocked("login_account", account)
+    if wait is not None:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many failed sign-ins for this account. Try again later, or reset your password.",
+            headers={"Retry-After": str(wait)},
+        )
     user = await authenticate(db, body.email, body.password)
     if user is None:
+        # Only failures count, so nobody can lock a user out by guessing at their account.
+        await limiter.hit("login_account", account)
         logger.info("login_failed")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email or password is incorrect.")
     token, session = await create_session(db, user, days=settings.session_days)
     audit.record(
         db, user_id=user.id, actor="user", action="logged_in", entity="user", entity_id=user.id
     )
-    _alert_sign_in(request, tasks, user, settings, "your password")
+    _alert_sign_in(request, tasks, db, user, settings, "your password")
     set_session_cookie(response, token, settings)
     return me_out(user, session.csrf_token, settings)
+
+
+@router.post(
+    "/password/forgot",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit("password"))],
+)
+async def forgot_password(
+    body: ForgotPasswordIn,
+    request: Request,
+    tasks: BackgroundTasks,
+    db: Db,
+    settings: AppSettings,
+) -> Response:
+    """The same answer whether or not the email has an account, so it can't be used to find out."""
+    if not request.app.state.email.configured:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Email isn't set up on this server, so passwords can't be reset.",
+        )
+    user = await get_user_by_email(db, body.email)
+    if user is not None and not is_demo_user(user, settings):
+        minutes = settings.password_reset_minutes
+        token = await passwords.issue_reset(db, user, minutes=minutes, now=datetime.now(UTC))
+        message = passwords.reset_email(
+            user, passwords.reset_link(settings.base_url, token), minutes
+        )
+        _queue(request, tasks, db, user, message, "password_reset")
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post(
+    "/password/reset",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(rate_limit("password"))],
+)
+async def reset_password(
+    body: ResetPasswordIn,
+    request: Request,
+    tasks: BackgroundTasks,
+    db: Db,
+    settings: AppSettings,
+) -> Response:
+    """A new password from a reset link; every session signs out, so the user signs in again."""
+    now = datetime.now(UTC)
+    try:
+        user = await passwords.reset(db, body.token, body.password, now=now)
+    except passwords.PasswordError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    _queue(request, tasks, db, user, passwords.changed_email(user, when=now), "password_changed")
+    _welcome(request, tasks, db, user, settings)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/password/change",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(rate_limit("password"))],
+)
+async def change_password(
+    body: ChangePasswordIn,
+    request: Request,
+    tasks: BackgroundTasks,
+    principal: CurrentUser,
+    db: Db,
+    settings: AppSettings,
+) -> Response:
+    """Needs the current password (none for a Google-only account); other sessions sign out."""
+    user = principal.user
+    if is_demo_user(user, settings):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "The shared demo account's password can't be changed."
+        )
+    now = datetime.now(UTC)
+    try:
+        await passwords.change(
+            db,
+            user,
+            current=body.current_password,
+            new=body.new_password,
+            session_id=principal.session.id,
+            now=now,
+        )
+    except passwords.PasswordError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    if user.email_verified:
+        message = passwords.changed_email(user, when=now)
+        _queue(request, tasks, db, user, message, "password_changed")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/google/start", include_in_schema=False, dependencies=[Depends(rate_limit("oauth"))])
@@ -264,10 +403,12 @@ async def google_callback(
     )
     response.delete_cookie(OAUTH_COOKIE, path=OAUTH_COOKIE_PATH)
     set_session_cookie(response, token, settings)
+    tasks = BackgroundTasks()
+    # Google checked the address: a new account (or one verified just now) is welcomed.
+    _welcome(request, tasks, db, user, settings)
     if not created:
-        tasks = BackgroundTasks()
-        _alert_sign_in(request, tasks, user, settings, "Google")
-        response.background = tasks
+        _alert_sign_in(request, tasks, db, user, settings, "Google")
+    response.background = tasks
     return response
 
 

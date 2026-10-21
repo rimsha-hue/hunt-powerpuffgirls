@@ -22,6 +22,7 @@ from app.api import (
     health,
     jobs,
     ledger,
+    mail,
     meta,
     pipeline,
     plans,
@@ -250,6 +251,7 @@ def create_app(
         forms.router,
         plans.router,
         activity.router,
+        mail.router,
     )
     for router in routers:
         app.include_router(router)

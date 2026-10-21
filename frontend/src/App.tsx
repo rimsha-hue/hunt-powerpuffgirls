@@ -61,6 +61,10 @@ function RequireAuth(): ReactNode {
 const router = createBrowserRouter([
   { path: '/', element: <Landing /> },
   { path: '/login', lazy: page(() => import('./pages/Login')) },
+  // Reached from email links, signed in or not.
+  { path: '/forgot-password', lazy: page(() => import('./pages/ForgotPassword')) },
+  { path: '/reset-password', lazy: page(() => import('./pages/ResetPassword')) },
+  { path: '/unsubscribe', lazy: page(() => import('./pages/Unsubscribe')) },
   {
     element: <RequireAuth />,
     children: [

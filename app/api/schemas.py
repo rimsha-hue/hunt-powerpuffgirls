@@ -28,6 +28,27 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class ForgotPasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=200)
+
+
+class ChangePasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Empty for an account that signs in with Google only and is adding a password.
+    current_password: str = Field(default="", max_length=200)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=200)
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -90,6 +111,7 @@ class ProfileOut(BaseModel):
     target_locations: list[PlaceOut]
     match_threshold: int
     calm_mode: bool
+    digest_emails: bool
     resume_version: int
 
 
@@ -113,6 +135,7 @@ class ProfileIn(BaseModel):
     target_locations: list[ShortText] | None = Field(default=None, max_length=10)
     match_threshold: int | None = Field(default=None, ge=0, le=100)
     calm_mode: bool | None = None
+    digest_emails: bool | None = None
 
     @field_validator("github_username")
     @classmethod

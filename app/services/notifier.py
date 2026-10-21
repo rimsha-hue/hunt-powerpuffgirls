@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Job, Notification, User
 from app.integrations.email import EmailError, EmailProvider, OutgoingEmail
-from app.services import apply_links, audit
+from app.services import apply_links, audit, mailer, unsubscribe
 
 logger = structlog.get_logger()
 
@@ -56,7 +56,9 @@ def _card(job: Job, url: str) -> str:
 </td></tr>"""
 
 
-def render_digest(jobs: list[Job], links: dict[int, str], hours: int) -> tuple[str, str, str]:
+def render_digest(
+    jobs: list[Job], links: dict[int, str], hours: int, unsubscribe_url: str
+) -> tuple[str, str, str]:
     """(subject, plain text, HTML). Job text is escaped; nothing from a posting is raw HTML."""
     count = len(jobs)
     subject = f"Power Hunt: {count} new job{'s' if count != 1 else ''} for you"
@@ -70,6 +72,7 @@ def render_digest(jobs: list[Job], links: dict[int, str], hours: int) -> tuple[s
             "",
         ]
     lines.append(f"Each Apply link works once and expires in {hours} hours.")
+    lines.append(f"Stop job digest emails: {unsubscribe_url}")
     cards = "".join(_card(job, links[job.id]) for job in jobs)
     html = f"""<!doctype html>
 <html><body style="margin:0;padding:24px;background:{_PAGE}">
@@ -81,7 +84,9 @@ def render_digest(jobs: list[Job], links: dict[int, str], hours: int) -> tuple[s
   {cards}
   <tr><td style="font:12px/1.4 Arial,sans-serif;color:{_INK}">
     Each Apply link works once and expires in {hours} hours. Nothing is sent to an employer
-    until you approve it.</td></tr>
+    until you approve it.<br>
+    <a href="{escape(unsubscribe_url, quote=True)}" style="color:{_INK}">Stop job digest emails</a>
+  </td></tr>
 </table></body></html>"""
     return subject, "\n".join(lines), html
 
@@ -93,6 +98,9 @@ async def send_digest(
     email: EmailProvider,
     base_url: str,
     link_hours: int,
+    secret: str,
+    unsubscribe_days: int,
+    daily_limit: int,
     now: datetime,
 ) -> DigestResult:
     result = await db.execute(
@@ -114,6 +122,12 @@ async def send_digest(
     if not user.email_verified:
         # The jobs stay unnotified, so they are in the first digest after verification.
         return DigestResult(note="Verify your email to get digests. The link is in your inbox.")
+    if not user.profile.digest_emails:
+        return DigestResult(note="Digest emails are off. Turn them on in your profile.")
+    try:
+        await mailer.check_limit(db, user.id, limit=daily_limit, now=now)
+    except mailer.SendLimitError as exc:
+        return DigestResult(note=str(exc))
 
     issued = {
         job.id: apply_links.issue(db, user_id=user.id, job_id=job.id, hours=link_hours, now=now)
@@ -124,10 +138,19 @@ async def send_digest(
         job_id: apply_links.link(base_url, job_id, token)
         for job_id, (token, _row) in issued.items()
     }
-    subject, text, html = render_digest(jobs, links, link_hours)
+    stop = unsubscribe.token(user.id, secret, unsubscribe_days)
+    subject, text, html = render_digest(
+        jobs, links, link_hours, unsubscribe.page_link(base_url, stop)
+    )
     try:
         message_id = await email.send(
-            OutgoingEmail(to=user.email, subject=subject, text=text, html=html)
+            OutgoingEmail(
+                to=user.email,
+                subject=subject,
+                text=text,
+                html=html,
+                headers=unsubscribe.headers(base_url, stop),
+            )
         )
     except EmailError as exc:
         # Links that never went out must not stay valid; the jobs stay un-notified for next time.
@@ -138,6 +161,7 @@ async def send_digest(
 
     for job in jobs:
         job.notified_at = now
+    mailer.record(db, user.id, "digest", now)
     db.add(Notification(user_id=user.id, kind="digest", sent_at=now, job_ids=[j.id for j in jobs]))
     audit.record(
         db,

@@ -148,6 +148,11 @@ export default function Login() {
               required
               {...(mode === 'signup' ? { hint: 'At least 10 characters.' } : {})}
             />
+            {mode === 'login' && (
+              <Link to="/forgot-password" className="-mt-2 w-fit text-sm font-semibold underline">
+                Forgot your password?
+              </Link>
+            )}
             {active.error && <ErrorNote>{active.error.message}</ErrorNote>}
             <Button type="submit" disabled={active.isPending} className="mt-1 w-full">
               {mode === 'login' ? <LogIn className="size-5" aria-hidden /> : <UserPlus className="size-5" aria-hidden />}

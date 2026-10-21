@@ -126,6 +126,8 @@ def normalize_changes(changes: Mapping[str, Any], rules: ProfileRules) -> dict[s
         "target_locations": lambda v: {"target_locations": _places(v or [], rules.locations)},
         "match_threshold": lambda v: {"match_threshold": v},
         "calm_mode": lambda v: {"calm_mode": v},
+        # Clearing the switch restores the default: digests on.
+        "digest_emails": lambda v: {"digest_emails": True if v is None else v},
     }
     values: dict[str, Any] = {}
     errors: dict[str, str] = {}

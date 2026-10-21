@@ -42,6 +42,7 @@ def profile_out(user: User, locations: LocationIndex) -> ProfileOut:
         target_locations=[place_out(place) for place in targets],
         match_threshold=p.match_threshold,
         calm_mode=p.calm_mode,
+        digest_emails=p.digest_emails,
         resume_version=p.resume_version,
     )
 

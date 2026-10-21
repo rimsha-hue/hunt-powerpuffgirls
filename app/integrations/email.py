@@ -43,6 +43,8 @@ class OutgoingEmail:
     attachments: tuple[Attachment, ...] = ()
     # Replies go to the applicant when the sending mailbox isn't theirs.
     reply_to: str | None = None
+    # Extra headers built by Power Hunt itself (List-Unsubscribe), never from user text.
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 class EmailProvider(Protocol):
@@ -91,6 +93,8 @@ class SmtpEmailProvider:
         email["Message-ID"] = make_msgid(domain=self.user.rsplit("@", 1)[-1])
         if message.reply_to and message.reply_to.lower() != self.user.lower():
             email["Reply-To"] = message.reply_to
+        for name, value in message.headers:
+            email[name] = value
         email.set_content(message.text)
         if message.html:
             email.add_alternative(message.html, subtype="html")

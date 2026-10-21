@@ -39,7 +39,7 @@ from app.integrations.email import Attachment, EmailError, EmailProvider, Outgoi
 from app.integrations.embeddings import Similarity
 from app.integrations.llm import LLMError, StructuredLLM
 from app.integrations.pdf import checked_cv, render_letter
-from app.services import audit, verifier
+from app.services import audit, mailer, verifier
 from app.services.applications import WorkspaceError, blocks_of, set_blocks, source_lines
 
 logger = structlog.get_logger()
@@ -428,6 +428,7 @@ async def send(
     application: Application,
     *,
     email: EmailProvider,
+    daily_limit: int,
     now: datetime,
 ) -> None:
     """Gate 3: the user approved; the email goes out with its attachments. Sending twice is
@@ -442,6 +443,10 @@ async def send(
     if not user.email_verified:
         # Replies go to the user's address; only a proven owner may send from it.
         raise WorkspaceError("Verify your email first; the link is in your inbox.")
+    try:
+        await mailer.check_limit(db, user.id, limit=daily_limit, now=now)
+    except mailer.SendLimitError as exc:
+        raise WorkspaceError(str(exc)) from exc
 
     files: list[Attachment] = []
     safe_company = "".join(ch if ch.isalnum() else "-" for ch in job.company)[:40]
@@ -503,6 +508,7 @@ async def send(
         application.approved_at = None
         raise WorkspaceError(str(exc)) from exc
 
+    mailer.record(db, user.id, "application", now)
     application.status = "sent"
     application.sent_at = now
     application.message_id = message_id[:300]

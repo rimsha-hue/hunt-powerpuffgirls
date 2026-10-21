@@ -115,6 +115,8 @@ export interface Profile {
   target_locations: Place[]
   match_threshold: number
   calm_mode: boolean
+  /** Job digest emails; off after an unsubscribe link. */
+  digest_emails: boolean
   resume_version: number
 }
 

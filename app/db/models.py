@@ -70,6 +70,8 @@ class User(Base):
     # When the user proved they own the email (a link from it, or Google). Nothing is emailed on
     # the user's behalf, and no digest goes out, before this is set.
     email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    # When the welcome email went out; it is sent once, after the address is proven.
+    welcomed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     @property
     def email_verified(self) -> bool:
@@ -108,6 +110,8 @@ class Profile(Base):
     target_locations: Mapped[list[str]] = mapped_column(default=list)  # location keys
     match_threshold: Mapped[int] = mapped_column(Integer, default=60)
     calm_mode: Mapped[bool] = mapped_column(default=False)
+    # Job digest emails; off after an unsubscribe link or the Profile switch.
+    digest_emails: Mapped[bool] = mapped_column(default=True)
     # Answers to form questions the profile has no field for ("How did you hear about us?"),
     # keyed by the question's folded label, so the user is asked once (spec Flow D).
     saved_answers: Mapped[dict[str, Any]] = mapped_column(default=dict)
@@ -241,6 +245,20 @@ class ApplyToken(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
     used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class EmailLog(Base):
+    """One row per email sent for a user: its kind and time, never its content. It enforces the
+    daily limit on digests and applications and shows sending volume to operators."""
+
+    __tablename__ = "email_log"
+    __table_args__ = (Index("ix_email_log_user_time", "user_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # digest | application | verify | welcome | alert | password_reset | password_changed
+    kind: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class EmailToken(Base):
