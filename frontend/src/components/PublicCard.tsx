@@ -5,7 +5,7 @@ import { Logo } from './Logo'
 
 /** A centred card for pages reached from an email link (reset, unsubscribe): no app chrome,
  * because the visitor may not be signed in. */
-export function PublicCard({ title, children }: { title: string; children: ReactNode }) {
+export function PublicCard({ title, children, wide = false }: { title: string; children: ReactNode; wide?: boolean }) {
   return (
     <div className="min-h-screen">
       <header className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
@@ -20,7 +20,7 @@ export function PublicCard({ title, children }: { title: string; children: React
           Log in
         </Link>
       </header>
-      <main className="mx-auto flex max-w-md flex-col px-4 pb-16 pt-6 sm:px-6">
+      <main className={`mx-auto flex flex-col px-4 pb-16 pt-6 sm:px-6 ${wide ? 'max-w-3xl' : 'max-w-md'}`}>
         <section className="panel bg-card p-6">
           <h1 className="mb-4 font-display text-4xl tracking-wide">{title}</h1>
           {children}

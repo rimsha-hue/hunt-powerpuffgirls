@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import delete
 
 from app.api.deps import SESSION_COOKIE, AnyPrincipal, AppSettings, CurrentUser, Db
@@ -21,7 +21,7 @@ from app.api.schemas import (
 from app.db.models import User
 from app.integrations import google_oauth
 from app.integrations.email import OutgoingEmail
-from app.services import admin, audit, mailer, passwords, verification
+from app.services import admin, audit, data_rights, mailer, passwords, verification
 from app.services.auth import (
     SUSPENDED_MESSAGE,
     authenticate,
@@ -455,3 +455,25 @@ async def delete_my_data(principal: CurrentUser, db: Db, settings: AppSettings) 
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response
+
+
+@router.get("/me/export", dependencies=[Depends(rate_limit("ingest"))])
+async def export_my_data(principal: CurrentUser, db: Db) -> JSONResponse:
+    """A copy of everything stored about the account, as one JSON file (no secrets)."""
+    now = datetime.now(UTC)
+    data = await data_rights.export(db, principal.user, now)
+    audit.record(
+        db,
+        user_id=principal.user.id,
+        actor="user",
+        action="data_exported",
+        entity="user",
+        entity_id=principal.user.id,
+    )
+    return JSONResponse(
+        data,
+        headers={
+            "Content-Disposition": f'attachment; filename="power-hunt-data-{now:%Y-%m-%d}.json"',
+            "Cache-Control": "no-store",
+        },
+    )

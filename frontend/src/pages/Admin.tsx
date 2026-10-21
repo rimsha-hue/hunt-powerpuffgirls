@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, LogOut, MailCheck, Radar, RotateCcw, Search, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
+import { Ban, Eraser, LogOut, MailCheck, Radar, RotateCcw, Search, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
 import { useDeferredValue, useState } from 'react'
 import { Button, ErrorNote, PageHeader, Panel, PanelTitle, Skeleton } from '../components/ui'
 import { api, json, type AdminAuditEntry, type AdminOverview, type AdminUser, type AdminUsers } from '../lib/api'
@@ -45,6 +45,18 @@ function Overview() {
   const scout = useMutation({
     mutationFn: () => api<void>('/api/admin/scout', { method: 'POST' }),
     onSuccess: () => toast("The Scout is running for everyone. It spends the job APIs' quotas."),
+    onError: (err) => toast(err.message, 'error'),
+  })
+  const cleanUp = useMutation({
+    mutationFn: () =>
+      api<{ sessions: number; links: number; email_log: number; unverified_accounts: number }>(
+        '/api/admin/maintenance',
+        { method: 'POST' },
+      ),
+    onSuccess: (r) =>
+      toast(
+        `Removed ${r.sessions} expired sessions, ${r.links} old links, ${r.email_log} old email log rows and ${r.unverified_accounts} stale unverified accounts.`,
+      ),
     onError: (err) => toast(err.message, 'error'),
   })
   if (overview.isPending) return <Skeleton className="h-64" />
@@ -123,6 +135,9 @@ function Overview() {
           <div className="mt-5">
             <Button variant="secondary" onClick={() => scout.mutate()} disabled={scout.isPending}>
               <Radar className="size-4" aria-hidden /> Run the Scout for everyone
+            </Button>{' '}
+            <Button variant="secondary" onClick={() => cleanUp.mutate()} disabled={cleanUp.isPending}>
+              <Eraser className="size-4" aria-hidden /> Run the data clean-up now
             </Button>
           </div>
         </Panel>

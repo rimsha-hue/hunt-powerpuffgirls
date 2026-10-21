@@ -154,6 +154,19 @@ export default function Login() {
                 Forgot your password?
               </Link>
             )}
+            {mode === 'signup' && (
+              <p className="-mt-1 text-xs">
+                By creating an account you agree to the{' '}
+                <Link to="/terms" className="font-semibold underline">
+                  terms
+                </Link>{' '}
+                and the{' '}
+                <Link to="/privacy" className="font-semibold underline">
+                  privacy notice
+                </Link>
+                .
+              </p>
+            )}
             {active.error && <ErrorNote>{active.error.message}</ErrorNote>}
             <Button type="submit" disabled={active.isPending} className="mt-1 w-full">
               {mode === 'login' ? <LogIn className="size-5" aria-hidden /> : <UserPlus className="size-5" aria-hidden />}

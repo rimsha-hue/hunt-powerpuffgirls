@@ -72,6 +72,8 @@ const router = createBrowserRouter([
   { path: '/forgot-password', lazy: page(() => import('./pages/ForgotPassword')) },
   { path: '/reset-password', lazy: page(() => import('./pages/ResetPassword')) },
   { path: '/unsubscribe', lazy: page(() => import('./pages/Unsubscribe')) },
+  { path: '/privacy', lazy: page(() => import('./pages/Privacy')) },
+  { path: '/terms', lazy: page(() => import('./pages/Terms')) },
   {
     element: <RequireAuth />,
     children: [

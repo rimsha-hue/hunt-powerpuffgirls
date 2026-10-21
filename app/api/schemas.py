@@ -159,6 +159,10 @@ class PublicConfigOut(BaseModel):
 
     max_upload_mb: int
     google_sign_in: bool
+    # For the privacy page: how long data is kept, and whom to write to (empty when unset).
+    retention_unverified_days: int
+    retention_email_log_days: int
+    support_email: str
     work_authorization: list[Option]
     notice_period: list[Option]
     salary_period: list[Option]
@@ -649,3 +653,10 @@ class AdminAuditOut(BaseModel):
     entity_id: str | None
     user_id: int
     email: str | None
+
+
+class AdminCleanupOut(BaseModel):
+    sessions: int
+    links: int
+    email_log: int
+    unverified_accounts: int

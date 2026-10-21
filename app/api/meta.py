@@ -25,6 +25,9 @@ async def public_config(settings: AppSettings) -> PublicConfigOut:
     return PublicConfigOut(
         max_upload_mb=settings.max_upload_mb,
         google_sign_in=settings.google_enabled,
+        retention_unverified_days=settings.retention_unverified_days,
+        retention_email_log_days=settings.retention_email_log_days,
+        support_email=settings.support_email,
         work_authorization=_options("work_authorization"),
         notice_period=_options("notice_period"),
         salary_period=_options("salary_period"),

@@ -58,6 +58,8 @@ LABELS: dict[str, str] = {
     "admin_delete": "An admin deleted an account",
     "admin_resend_verification": "An admin resent a verification email",
     "admin_scout_all": "An admin ran the Scout for everyone",
+    "admin_clean_up": "An admin ran the data clean-up",
+    "data_exported": "You downloaded a copy of your data",
 }
 
 

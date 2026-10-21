@@ -20,7 +20,7 @@ from app.domain.status import OPEN_STATUSES
 from app.domain.taxonomy import Taxonomy
 from app.integrations.email import EmailProvider
 from app.integrations.fetch import SafeFetcher
-from app.services import liveness
+from app.services import data_rights, liveness
 from app.services.notifier import DigestResult, send_digest
 from app.services.scout import ScoutReport, ScoutSources, run_scout
 
@@ -123,6 +123,23 @@ class ScoutRunner:
         )
         return RunResult(report, digest)
 
+    async def clean_up(self) -> data_rights.Cleanup:
+        """Daily retention: expired sessions and links, old email log rows, stale unverified
+        accounts. The demo account and admins are kept."""
+        keep = frozenset(e for e in ((self.settings.demo_user_email or "").lower(),) if e)
+        async with self.session_factory() as db:
+            result = await data_rights.clean(
+                db,
+                now=datetime.now(UTC),
+                unverified_days=self.settings.retention_unverified_days,
+                email_log_days=self.settings.retention_email_log_days,
+                token_days=self.settings.retention_token_days,
+                keep_emails=keep,
+            )
+            await db.commit()
+        logger.info("retention_cleaned", **result.__dict__)
+        return result
+
     async def run_all(self) -> int:
         """Scouts every user who has target roles; one user's failure doesn't stop the rest."""
         async with self.session_factory() as db:
@@ -137,6 +154,10 @@ class ScoutRunner:
                 logger.warning("scout_user_failed", user_id=user_id, error_type=type(exc).__name__)
         logger.info("scout_all_finished", users=len(user_ids), succeeded=done)
         return done
+
+
+# Retention clean-up runs once a day alongside the Scout.
+CLEAN_UP_HOURS = 24
 
 
 class ScoutScheduler:
@@ -159,6 +180,14 @@ class ScoutScheduler:
             "interval",
             hours=self.interval_hours,
             id="scout",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            self.runner.clean_up,
+            "interval",
+            hours=CLEAN_UP_HOURS,
+            id="retention",
             max_instances=1,
             coalesce=True,
         )
