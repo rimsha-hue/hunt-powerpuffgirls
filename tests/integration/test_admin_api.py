@@ -145,3 +145,11 @@ class TestAccountActions:
 
     def test_run_the_scout_for_everyone(self, boss: TestClient) -> None:
         assert boss.post("/api/admin/scout").status_code == 202
+
+
+class TestMaintenance:
+    def test_admins_can_run_the_clean_up(self, boss: TestClient, app: FastAPI) -> None:
+        response = boss.post("/api/admin/maintenance")
+        assert response.status_code == 200
+        assert set(response.json()) == {"sessions", "links", "email_log", "unverified_accounts"}
+        assert _user(app).post("/api/admin/maintenance").status_code == 403

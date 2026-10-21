@@ -152,6 +152,16 @@ class Settings(BaseSettings):
     tavily_api_url: AnyHttpUrl = AnyHttpUrl("https://api.tavily.com/search")
     research_max_results: int = Field(default=5, ge=1, le=10)
 
+    # --- Data retention and privacy ---
+    # Accounts that never verified their email and haven't signed in for this long are deleted.
+    retention_unverified_days: int = Field(default=30, ge=7, le=365)
+    # The email log (kind and time of each email, no content) keeps rows this long.
+    retention_email_log_days: int = Field(default=90, ge=7, le=730)
+    # Used or expired emailed links (verification, password reset, Apply) are removed after this.
+    retention_token_days: int = Field(default=7, ge=1, le=90)
+    # Where people write about their account or data; shown on the privacy page when set.
+    support_email: str = ""
+
     # --- Coach and growth plans (Phase 6) ---
     # A linked repo proves a skill only with at least this many commits (spec: default 3).
     coach_min_commits: int = Field(default=3, ge=1, le=100)

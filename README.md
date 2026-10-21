@@ -265,6 +265,7 @@ Every setting is declared and documented in [`app/config.py`](app/config.py).
 | Google sign-in | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
 | GitHub limits | `GITHUB_TOKEN` (read-only) |
 | Admin accounts | `ADMIN_EMAILS` (comma separated; each becomes an admin once its email is verified), or `python -m app.manage role <email> admin` |
+| Privacy and retention | `SUPPORT_EMAIL` (shown on the privacy page), `RETENTION_UNVERIFIED_DAYS` (30), `RETENTION_EMAIL_LOG_DAYS` (90), `RETENTION_TOKEN_DAYS` (7) |
 
 ### Tests and checks
 

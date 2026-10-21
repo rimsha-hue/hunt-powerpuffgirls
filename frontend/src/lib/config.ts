@@ -10,6 +10,10 @@ export interface Option {
 export interface PublicConfig {
   max_upload_mb: number
   google_sign_in: boolean
+  retention_unverified_days: number
+  retention_email_log_days: number
+  /** Empty when the server has no support address set. */
+  support_email: string
   work_authorization: Option[]
   notice_period: Option[]
   salary_period: Option[]

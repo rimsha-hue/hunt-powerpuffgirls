@@ -15,6 +15,7 @@ from app.api.health import database_state
 from app.api.ratelimit import rate_limit
 from app.api.schemas import (
     AdminAuditOut,
+    AdminCleanupOut,
     AdminOverviewOut,
     AdminRoleIn,
     AdminSystemOut,
@@ -223,3 +224,13 @@ async def run_scout_for_everyone(
     )
     tasks.add_task(request.app.state.scout_runner.run_all)
     return Response(status_code=http.HTTP_202_ACCEPTED)
+
+
+@router.post("/maintenance", dependencies=MUTATION)
+async def run_clean_up(request: Request, principal: AdminUser, db: Db) -> AdminCleanupOut:
+    """Runs the daily retention clean-up now and reports what it removed."""
+    result = await request.app.state.scout_runner.clean_up()
+    audit.record(
+        db, user_id=principal.user.id, actor="admin", action="admin_clean_up", entity="retention"
+    )
+    return AdminCleanupOut(**result.__dict__)

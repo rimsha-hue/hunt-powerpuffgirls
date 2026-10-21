@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BellOff, BellRing, ExternalLink, KeyRound, Pencil, Trash2 } from 'lucide-react'
+import { BellOff, BellRing, Download, ExternalLink, KeyRound, Pencil, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Button, ErrorNote, Panel, PanelTitle, PasswordField, Skeleton } from '../components/ui'
@@ -243,7 +243,22 @@ export default function Profile() {
         <DigestSwitch on={p.digest_emails} />
 
         <Panel>
-          <PanelTitle kicker="Your data">Delete everything</PanelTitle>
+          <PanelTitle kicker="Your data">Download or delete it</PanelTitle>
+          <p className="mb-3 text-sm">
+            A copy of everything stored about you, as one JSON file. Read how it's used in the{' '}
+            <Link to="/privacy" className="font-semibold underline">
+              privacy notice
+            </Link>
+            .
+          </p>
+          {/* A plain download: same-origin GET with the session cookie, saved by the browser. */}
+          <a
+            href="/api/auth/me/export"
+            download
+            className="mb-5 inline-flex w-fit items-center gap-2 rounded-lg border-3 border-ink bg-card px-4 py-2 font-semibold shadow-comic-sm"
+          >
+            <Download className="size-4" aria-hidden /> Download my data
+          </a>
           <p className="mb-3 text-sm">
             Removes your account, resume, ledger, jobs, applications and plans for good. Emails already sent to employers
             can't be recalled.

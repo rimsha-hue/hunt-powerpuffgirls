@@ -57,7 +57,14 @@ export default function Landing() {
         <Gates />
       </main>
       <footer className="border-t-3 border-ink bg-ink px-4 py-5 text-center font-mono text-xs text-card">
-        Power Hunt · built for NASCON ’26 Agentika 2.0 · Human + AI: Better Together
+        Power Hunt · built for NASCON ’26 Agentika 2.0 · Human + AI: Better Together ·{' '}
+        <Link to="/privacy" className="underline">
+          Privacy
+        </Link>{' '}
+        ·{' '}
+        <Link to="/terms" className="underline">
+          Terms
+        </Link>
       </footer>
     </div>
   )
