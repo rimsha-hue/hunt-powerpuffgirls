@@ -42,8 +42,9 @@ from app.services import audit
 logger = structlog.get_logger()
 
 MAX_NOTE = 300
-# At most this many Needs-you questions per document: the riskiest are asked, the rest are kept as
-# rewordings of the user's own lines (Inferred). 0 asks about every unproven claim (the eval).
+# About this many Needs-you questions per document. Rewritten bullets whose unproven claims would
+# go past it are put back to the user's own resume line, never passed as proven. 0 asks about
+# every unproven claim (the eval).
 MAX_QUESTIONS = 3
 # Which unproven claims matter most: a wrong number, credential or employer misleads a recruiter
 # more than a loosely worded skill phrase.
@@ -285,15 +286,15 @@ async def verify(
             subject=subject,
         )
 
-    found = {i: find(out[i], [c for b, c in llm_found if b == i]) for i in indexes}
-    sims = await _claim_similarities(out, found, similarity)
-
-    drafts: list[Draft] = []
-    for i in indexes:
+    async def settle(
+        i: int, found_here: Sequence[FoundClaim], sims: Mapping[tuple[int, int, int], float]
+    ) -> list[Draft]:
+        """Routes one bullet's claims; blocked values are cut and the rest routed again."""
         block = out[i]
         routed = _route_block(
-            block, found[i], sims, i, ledger=ledger, taxonomy=taxonomy, threshold=threshold
+            block, found_here, sims, i, ledger=ledger, taxonomy=taxonomy, threshold=threshold
         )
+        drafts: list[Draft] = []
         blocked = [(c, r, s) for c, r, s, _ in routed if r.bucket == "blocked"]
         if blocked:
             text = block.text
@@ -324,28 +325,58 @@ async def verify(
         drafts.extend(
             Draft(i, c, r.bucket, r.normalized, s, block.line_id, pair) for c, r, s, pair in routed
         )
-    return Verification(out, _cap_questions(drafts, max_questions), note)
-
-
-def _cap_questions(drafts: list[Draft], limit: int) -> list[Draft]:
-    """Keeps the `limit` riskiest Needs-you claims (code-found before model-found, then by type)
-    and routes the rest as Inferred."""
-    asked = [d for d in drafts if d.bucket == "needs_you"]
-    if limit <= 0 or len(asked) <= limit:
         return drafts
 
-    def risk(draft: Draft) -> tuple[int, int]:
-        kind = draft.claim.type
-        rank = (
-            QUESTION_PRIORITY.index(kind) if kind in QUESTION_PRIORITY else len(QUESTION_PRIORITY)
-        )
-        return (0 if draft.claim.origin == "code" else 1, rank)
+    found = {i: find(out[i], [c for b, c in llm_found if b == i]) for i in indexes}
+    sims = await _claim_similarities(out, found, similarity)
+    per_block = {i: await settle(i, found[i], sims) for i in indexes}
 
-    keep = {id(d) for d in sorted(asked, key=risk)[:limit]}
-    return [
-        replace(d, bucket="inferred") if d.bucket == "needs_you" and id(d) not in keep else d
-        for d in drafts
-    ]
+    # Past the question limit, a rewrite goes back to the user's own words rather than being
+    # passed as proven: an unproven claim is asked about or removed, never relabelled.
+    restored = 0
+    for i in _over_limit(per_block, out, max_questions):
+        out[i] = replace(out[i], text=out[i].original)
+        again = {i: find(out[i], [])}
+        per_block[i] = await settle(i, again[i], await _claim_similarities(out, again, similarity))
+        restored += 1
+    if restored:
+        kept = (
+            f"{restored} rewritten line{'s' if restored != 1 else ''} went back to your own words, "
+            "so you're asked only about the riskiest changes."
+        )
+        note = f"{note} {kept}" if note else kept
+    drafts = [d for i in indexes for d in per_block[i]]
+    return Verification(out, drafts, note)
+
+
+def _risk(draft: Draft) -> tuple[int, int]:
+    """Lower is riskier: code-found before model-found, then by claim type."""
+    kind = draft.claim.type
+    rank = QUESTION_PRIORITY.index(kind) if kind in QUESTION_PRIORITY else len(QUESTION_PRIORITY)
+    return (0 if draft.claim.origin == "code" else 1, rank)
+
+
+def _over_limit(
+    per_block: Mapping[int, Sequence[Draft]], blocks: Sequence[Block], limit: int
+) -> list[int]:
+    """Rewritten bullets to restore so that about `limit` questions remain. Bullets are kept in
+    order of their riskiest unproven claim (those are worth asking about); the first is always
+    kept. A bullet in the user's own words is never restored: its questions stay."""
+    if limit <= 0:
+        return []
+    asking = {i: [d for d in drafts if d.bucket == "needs_you"] for i, drafts in per_block.items()}
+    rewritten = sorted(
+        (i for i, asked in asking.items() if asked and blocks[i].rewritten),
+        key=lambda i: min(_risk(d) for d in asking[i]),
+    )
+    total = sum(len(asked) for i, asked in asking.items() if not blocks[i].rewritten)
+    over: list[int] = []
+    for position, i in enumerate(rewritten):
+        if position == 0 or total + len(asking[i]) <= limit:
+            total += len(asking[i])
+        else:
+            over.append(i)
+    return over
 
 
 def claim_rows(
