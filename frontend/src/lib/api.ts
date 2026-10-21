@@ -75,6 +75,7 @@ export interface User {
   /** Until true, no digest and no application is emailed from the account. */
   email_verified: boolean
   created_at: string
+  role: 'user' | 'admin'
 }
 
 export interface Me {
@@ -115,6 +116,8 @@ export interface Profile {
   target_locations: Place[]
   match_threshold: number
   calm_mode: boolean
+  /** Job digest emails; off after an unsubscribe link. */
+  digest_emails: boolean
   resume_version: number
 }
 
@@ -550,4 +553,67 @@ export interface Activity {
   counters: ActivityCounters
   questions: ActivityAsked[]
   events: ActivityEvent[]
+}
+
+// ---- Admin console ----
+
+export interface AdminUser {
+  id: number
+  email: string
+  name: string
+  role: 'user' | 'admin'
+  verified: boolean
+  suspended: boolean
+  demo: boolean
+  google_linked: boolean
+  created_at: string
+  last_login_at: string | null
+  jobs: number
+  applications_sent: number
+}
+
+export interface AdminUsers {
+  total: number
+  users: AdminUser[]
+}
+
+export interface AdminSystem {
+  env: string
+  version: string
+  database: string
+  llm_models: string[]
+  embeddings: string
+  scheduler: string
+  job_search: boolean
+  company_research: boolean
+  email: boolean
+  google_sign_in: boolean
+  github_token: boolean
+  rate_limit_storage: string
+}
+
+export interface AdminOverview {
+  users: number
+  verified: number
+  admins: number
+  suspended: number
+  new_this_week: number
+  active_this_week: number
+  applications_sent_this_week: number
+  plans_verified: number
+  scout_runs_today: number
+  emails_today: Record<string, number>
+  system: AdminSystem
+}
+
+export interface AdminAuditEntry {
+  id: number
+  created_at: string
+  actor: string
+  action: string
+  label: string
+  entity: string
+  entity_id: string | null
+  user_id: number
+  email: string | null
 }

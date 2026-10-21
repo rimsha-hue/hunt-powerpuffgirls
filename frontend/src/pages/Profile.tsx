@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { BellOff, BellRing, ExternalLink, KeyRound, Pencil, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { Button, ErrorNote, Panel, PanelTitle, Skeleton } from '../components/ui'
-import { api, setCsrfToken, type Profile as ProfileData } from '../lib/api'
+import { Button, ErrorNote, Panel, PanelTitle, PasswordField, Skeleton } from '../components/ui'
+import { api, ApiError, json, setCsrfToken, type Profile as ProfileData } from '../lib/api'
 import { meKey, useMe } from '../lib/session'
 import { useToast } from '../lib/toast'
 
@@ -17,6 +17,94 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 const missing = <span className="text-ink/60">Not set</span>
+
+/** Change (or, for a Google-only account, add) the password. Other devices sign out. */
+function PasswordPanel({ hasPassword, isDemo }: { hasPassword: boolean; isDemo: boolean }) {
+  const toast = useToast()
+  const form = useRef<HTMLFormElement>(null)
+  const [mismatch, setMismatch] = useState(false)
+  const change = useMutation({
+    mutationFn: (body: { current_password: string; new_password: string }) =>
+      api<void>('/api/auth/password/change', { method: 'POST', body: json(body) }),
+    onSuccess: () => {
+      form.current?.reset()
+      toast('Password saved. Every other device was signed out.')
+    },
+  })
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    const next = String(data.get('new_password') ?? '')
+    const same = next === String(data.get('confirm') ?? '')
+    setMismatch(!same)
+    if (same) change.mutate({ current_password: String(data.get('current_password') ?? ''), new_password: next })
+  }
+
+  const fields = change.error instanceof ApiError ? change.error.fields : {}
+  return (
+    <Panel>
+      <PanelTitle kicker="Security">{hasPassword ? 'Change your password' : 'Add a password'}</PanelTitle>
+      {isDemo ? (
+        <p className="text-sm font-semibold">The shared demo account's password can't be changed.</p>
+      ) : (
+        <form ref={form} onSubmit={submit} className="flex flex-col gap-3">
+          {!hasPassword && <p className="text-sm">You sign in with Google. A password lets you sign in with email too.</p>}
+          {hasPassword && (
+            <PasswordField label="Current password" name="current_password" autoComplete="current-password" required />
+          )}
+          <PasswordField
+            label="New password"
+            name="new_password"
+            autoComplete="new-password"
+            minLength={10}
+            required
+            hint="At least 10 characters."
+          />
+          <PasswordField label="Type it again" name="confirm" autoComplete="new-password" minLength={10} required />
+          {mismatch && <ErrorNote>The two passwords don't match.</ErrorNote>}
+          {change.error && <ErrorNote>{fields.new_password ?? change.error.message}</ErrorNote>}
+          <Button type="submit" variant="secondary" disabled={change.isPending} className="w-fit">
+            <KeyRound className="size-4" aria-hidden /> {change.isPending ? 'Saving…' : 'Save password'}
+          </Button>
+        </form>
+      )}
+    </Panel>
+  )
+}
+
+/** Job digest emails on or off; account emails (resets, alerts) always arrive. */
+function DigestSwitch({ on }: { on: boolean }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const save = useMutation({
+    mutationFn: (value: boolean) => api<ProfileData>('/api/profile', { method: 'PUT', body: json({ digest_emails: value }) }),
+    onSuccess: (profile) => {
+      qc.setQueryData(['profile'], profile)
+      toast(profile.digest_emails ? 'Job digests are on.' : 'Job digests are off.')
+    },
+    onError: (err) => toast(err.message, 'error'),
+  })
+  return (
+    <Panel>
+      <PanelTitle kicker="Emails">What we send you</PanelTitle>
+      <p className="mb-3 text-sm">
+        Job digests list new jobs that match your search, a few times a day at most. Account emails, like password
+        resets and sign-in alerts, always arrive.
+      </p>
+      <Button
+        variant="secondary"
+        role="switch"
+        aria-checked={on}
+        onClick={() => save.mutate(!on)}
+        disabled={save.isPending}
+      >
+        {on ? <BellRing className="size-4" aria-hidden /> : <BellOff className="size-4" aria-hidden />}
+        Job digests {on ? 'on' : 'off'}
+      </Button>
+    </Panel>
+  )
+}
 
 export default function Profile() {
   const { data: me } = useMe()
@@ -150,6 +238,9 @@ export default function Profile() {
             </Row>
           </dl>
         </Panel>
+
+        <PasswordPanel hasPassword={me.user.has_password} isDemo={me.is_demo} />
+        <DigestSwitch on={p.digest_emails} />
 
         <Panel>
           <PanelTitle kicker="Your data">Delete everything</PanelTitle>

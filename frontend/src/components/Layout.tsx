@@ -1,5 +1,16 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, BookCheck, Briefcase, FileStack, LogOut, MailCheck, Rocket, Sprout, Wind } from 'lucide-react'
+import {
+  Activity,
+  BookCheck,
+  Briefcase,
+  FileStack,
+  LogOut,
+  MailCheck,
+  Rocket,
+  ShieldHalf,
+  Sprout,
+  Wind,
+} from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
 import { api, json, type Me } from '../lib/api'
 import { cx } from '../lib/cx'
@@ -16,6 +27,8 @@ const NAV = [
   { to: '/plans', label: 'Growth plans', icon: Sprout },
   { to: '/activity', label: 'Activity', icon: Activity },
 ]
+// Shown to admins only; the server checks the role on every admin request regardless.
+const ADMIN_NAV = { to: '/admin', label: 'Admin', icon: ShieldHalf }
 
 function CalmToggle() {
   const { data: me } = useMe()
@@ -106,7 +119,7 @@ export function AppLayout() {
             className="order-3 flex w-full gap-1 overflow-x-auto lg:order-none lg:w-auto lg:flex-1 lg:justify-center"
             aria-label="Main"
           >
-            {!scoped && NAV.map(({ to, label, icon: Icon }) => (
+            {!scoped && [...NAV, ...(me?.user.role === 'admin' ? [ADMIN_NAV] : [])].map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}

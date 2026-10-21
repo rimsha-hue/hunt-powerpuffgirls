@@ -523,7 +523,7 @@ async def cover_letter_pdf(job_id: int, principal: AnyPrincipal, db: Db) -> Resp
 
 @router.post("/jobs/{job_id}/application/send", dependencies=[Depends(rate_limit("ingest"))])
 async def send_application(
-    job_id: int, request: Request, principal: AnyPrincipal, db: Db
+    job_id: int, request: Request, principal: AnyPrincipal, db: Db, settings: AppSettings
 ) -> ApplicationOut:
     """Gate 3 (Approve): the email goes out from the user's mailbox with its attachments."""
     job = await job_for(db, principal, job_id)
@@ -535,6 +535,7 @@ async def send_application(
             job,
             application,
             email=request.app.state.email,
+            daily_limit=settings.email_daily_limit,
             now=datetime.now(UTC),
         )
     except WorkspaceError as exc:

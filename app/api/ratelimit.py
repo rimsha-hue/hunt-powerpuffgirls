@@ -37,6 +37,14 @@ class RateLimiter:
                 return max(1, math.ceil(stats.reset_time - time.time()))
         return None
 
+    async def blocked(self, rule: str, key: str) -> int | None:
+        """Like `hit` without recording one: for limits that count only failures."""
+        for item in self._rules[rule]:
+            if not await self._strategy.test(item, rule, key):
+                stats = await self._strategy.get_window_stats(item, rule, key)
+                return max(1, math.ceil(stats.reset_time - time.time()))
+        return None
+
     async def reset(self) -> None:
         await self._storage.reset()
 

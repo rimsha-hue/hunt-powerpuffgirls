@@ -19,6 +19,7 @@ from app.domain.profile import ProfileRules, normalize_changes
 from app.domain.taxonomy import default_taxonomy
 from app.integrations.llm import build_llm
 from app.logging import configure_logging
+from app.services import admin
 from app.services.auth import create_user, get_user_by_email
 from app.services.ingestion import ingest_resume
 
@@ -35,6 +36,20 @@ def _apply_demo_profile(user: User, settings: Settings, locations: LocationIndex
     values = normalize_changes(raw, ProfileRules(locations, settings.default_phone_region))
     for column, value in values.items():
         setattr(user if column in USER_COLUMNS else user.profile, column, value)
+
+
+async def grant_admins(settings: Settings) -> int:
+    """Listed (ADMIN_EMAILS), verified accounts become admins at startup."""
+    if not settings.admin_email_set:
+        return 0
+    engine = create_engine(settings.database_url, pool_size=1, max_overflow=0)
+    try:
+        async with create_session_factory(engine)() as db:
+            granted = await admin.grant_listed(db, settings.admin_email_set)
+            await db.commit()
+            return granted
+    finally:
+        await engine.dispose()
 
 
 async def seed(settings: Settings, locations: LocationIndex | None = None) -> str:
@@ -73,6 +88,8 @@ def main() -> None:
     loop_factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
     outcome = asyncio.run(seed(settings), loop_factory=loop_factory)
     logger.info("seed_finished", outcome=outcome)
+    granted = asyncio.run(grant_admins(settings), loop_factory=loop_factory)
+    logger.info("admins_granted", count=granted)
 
 
 if __name__ == "__main__":

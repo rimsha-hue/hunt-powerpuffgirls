@@ -142,6 +142,8 @@ def signup(client: TestClient, email: str = "hero@example.com", *, verify: bool 
             link = VERIFY_LINK.search(message.text)
             assert link is not None
             assert client.get(link.group(0), follow_redirects=False).status_code == 302
+            # Verifying sends the welcome email; it isn't the test's own mail either.
+            outbox[:] = [m for m in outbox if m.subject != "Welcome to Power Hunt"]
     return token
 
 

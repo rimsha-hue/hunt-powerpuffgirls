@@ -109,6 +109,9 @@ class ScoutRunner:
                     email=self.email,
                     base_url=self.settings.base_url,
                     link_hours=self.settings.apply_link_hours,
+                    secret=self.settings.secret_key.get_secret_value(),
+                    unsubscribe_days=self.settings.unsubscribe_link_days,
+                    daily_limit=self.settings.email_daily_limit,
                     now=datetime.now(UTC),
                 )
                 await db.commit()

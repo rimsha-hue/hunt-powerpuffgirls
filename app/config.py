@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # instance; a shared store (redis://...) when running more than one worker or replica.
     rate_limit_storage_uri: str = "memory://"
     rate_limit_login: str = "10/minute"
+    # Failed sign-ins per account (any address), on top of the per-address limit. Only failures
+    # count, so nobody can lock a user out by guessing at their account.
+    rate_limit_login_account: str = "10/hour"
+    # Forgot, reset and change password requests per client address.
+    rate_limit_password: str = "5/hour"
     rate_limit_signup: str = "5/minute"
     rate_limit_oauth: str = "20/minute"
     rate_limit_ingest: str = "10/minute"
@@ -58,6 +63,9 @@ class Settings(BaseSettings):
     max_json_kb: int = Field(default=64, ge=4, le=1024)
 
     # --- Demo account for judges (credentials only ever come from the environment) ---
+    # Accounts with these emails (comma separated) become admins once their email is verified.
+    # Admins can also be made with `python -m app.manage role <email> admin`.
+    admin_emails: str = ""
     demo_user_email: str | None = None
     demo_user_password: SecretStr | None = None
     demo_github_username: str | None = None
@@ -131,6 +139,12 @@ class Settings(BaseSettings):
     email_verify_hours: int = Field(default=48, ge=1, le=168)
     # Email the user each time someone signs in to their account.
     login_alerts: bool = True
+    # A password reset link stays valid this long.
+    password_reset_minutes: int = Field(default=30, ge=5, le=1440)
+    # Digests and applications one account may send in any 24 hours.
+    email_daily_limit: int = Field(default=20, ge=1, le=500)
+    # The unsubscribe link in a digest keeps working this long.
+    unsubscribe_link_days: int = Field(default=90, ge=1, le=365)
 
     # --- Company research (Phase 5) ---
     # Tavily search; without a key, company facts come from the job description only.
@@ -178,6 +192,8 @@ class Settings(BaseSettings):
 
     @field_validator(
         "rate_limit_login",
+        "rate_limit_login_account",
+        "rate_limit_password",
         "rate_limit_signup",
         "rate_limit_oauth",
         "rate_limit_ingest",
@@ -234,12 +250,18 @@ class Settings(BaseSettings):
     def rate_limits(self) -> dict[str, str]:
         return {
             "login": self.rate_limit_login,
+            "login_account": self.rate_limit_login_account,
+            "password": self.rate_limit_password,
             "signup": self.rate_limit_signup,
             "oauth": self.rate_limit_oauth,
             "ingest": self.rate_limit_ingest,
             "lookup": self.rate_limit_lookup,
             "scout": self.rate_limit_scout,
         }
+
+    @property
+    def admin_email_set(self) -> frozenset[str]:
+        return frozenset(e.strip().lower() for e in self.admin_emails.split(",") if e.strip())
 
     @property
     def email_enabled(self) -> bool:

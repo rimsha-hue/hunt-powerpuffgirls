@@ -28,6 +28,27 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class ForgotPasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=200)
+
+
+class ChangePasswordIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Empty for an account that signs in with Google only and is adding a password.
+    current_password: str = Field(default="", max_length=200)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=200)
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -40,6 +61,7 @@ class UserOut(BaseModel):
     has_password: bool
     email_verified: bool
     created_at: datetime
+    role: Literal["user", "admin"]
 
 
 class MeOut(BaseModel):
@@ -90,6 +112,7 @@ class ProfileOut(BaseModel):
     target_locations: list[PlaceOut]
     match_threshold: int
     calm_mode: bool
+    digest_emails: bool
     resume_version: int
 
 
@@ -113,6 +136,7 @@ class ProfileIn(BaseModel):
     target_locations: list[ShortText] | None = Field(default=None, max_length=10)
     match_threshold: int | None = Field(default=None, ge=0, le=100)
     calm_mode: bool | None = None
+    digest_emails: bool | None = None
 
     @field_validator("github_username")
     @classmethod
@@ -553,3 +577,75 @@ class ActivityOut(BaseModel):
     counters: CountersOut
     questions: list[AskedOut]
     events: list[ActivityEventOut]
+
+
+# ---- Admin console ----
+
+
+class AdminRoleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "admin"]
+
+
+class AdminUserOut(BaseModel):
+    """An account as an admin sees it: identity and counts, never resume or email content."""
+
+    id: int
+    email: str
+    name: str
+    role: Literal["user", "admin"]
+    verified: bool
+    suspended: bool
+    demo: bool
+    google_linked: bool
+    created_at: datetime
+    last_login_at: datetime | None
+    jobs: int
+    applications_sent: int
+
+
+class AdminUsersOut(BaseModel):
+    total: int
+    users: list[AdminUserOut]
+
+
+class AdminSystemOut(BaseModel):
+    env: str
+    version: str
+    database: str
+    llm_models: list[str]
+    embeddings: str
+    scheduler: str
+    job_search: bool
+    company_research: bool
+    email: bool
+    google_sign_in: bool
+    github_token: bool
+    rate_limit_storage: str
+
+
+class AdminOverviewOut(BaseModel):
+    users: int
+    verified: int
+    admins: int
+    suspended: int
+    new_this_week: int
+    active_this_week: int
+    applications_sent_this_week: int
+    plans_verified: int
+    scout_runs_today: int
+    emails_today: dict[str, int]
+    system: AdminSystemOut
+
+
+class AdminAuditOut(BaseModel):
+    id: int
+    created_at: datetime
+    actor: str
+    action: str
+    label: str
+    entity: str
+    entity_id: str | None
+    user_id: int
+    email: str | None

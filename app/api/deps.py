@@ -9,12 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.db.models import AuthSession, User
+from app.domain.access import is_admin
 from app.domain.locations import LocationIndex
 from app.domain.taxonomy import Taxonomy
 from app.integrations.fetch import SafeFetcher
 from app.integrations.github import GitHubClient
 from app.integrations.llm import StructuredLLM
-from app.services.auth import resolve_session, tokens_match
+from app.services.auth import SUSPENDED_MESSAGE, resolve_session, tokens_match
 from app.services.runner import ScoutRunner
 
 SESSION_COOKIE = "ph_session"
@@ -87,6 +88,8 @@ async def get_principal(request: Request, db: Db) -> Principal:
     if resolved is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please log in.")
     session, user = resolved
+    if user.suspended_at is not None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, SUSPENDED_MESSAGE)
     if request.method in UNSAFE_METHODS and not tokens_match(
         session.csrf_token, request.headers.get(CSRF_HEADER)
     ):
@@ -104,6 +107,16 @@ async def get_full_principal(principal: Annotated[Principal, Depends(get_princip
 
 
 CurrentUser = Annotated[Principal, Depends(get_full_principal)]
+
+
+async def get_admin(principal: CurrentUser) -> Principal:
+    """The admin console's gate. Admin endpoints never return users' resumes, CVs or emails."""
+    if not is_admin(principal.user.role, principal.user.suspended_at is not None):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admins only.")
+    return principal
+
+
+AdminUser = Annotated[Principal, Depends(get_admin)]
 # Any signed-in session, including one limited to a job by an Apply link. Routes using it must
 # check `can_open_job` themselves or touch nothing job-specific.
 AnyPrincipal = Annotated[Principal, Depends(get_principal)]

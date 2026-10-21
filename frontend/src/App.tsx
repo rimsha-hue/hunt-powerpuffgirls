@@ -31,6 +31,13 @@ const queryClient: QueryClient = new QueryClient({
   }),
 })
 
+/** The admin console's front door; the API refuses non-admins whatever the browser shows. */
+function RequireAdmin(): ReactNode {
+  const { data: me } = useMe()
+  if (me?.user.role !== 'admin') return <Navigate to="/jobs" replace />
+  return <Outlet />
+}
+
 function RequireAuth(): ReactNode {
   const { data: me, isPending, error } = useMe()
   const location = useLocation()
@@ -61,6 +68,10 @@ function RequireAuth(): ReactNode {
 const router = createBrowserRouter([
   { path: '/', element: <Landing /> },
   { path: '/login', lazy: page(() => import('./pages/Login')) },
+  // Reached from email links, signed in or not.
+  { path: '/forgot-password', lazy: page(() => import('./pages/ForgotPassword')) },
+  { path: '/reset-password', lazy: page(() => import('./pages/ResetPassword')) },
+  { path: '/unsubscribe', lazy: page(() => import('./pages/Unsubscribe')) },
   {
     element: <RequireAuth />,
     children: [
@@ -73,6 +84,10 @@ const router = createBrowserRouter([
           { path: '/jobs/:id', lazy: page(() => import('./pages/JobDetail')) },
           { path: '/jobs/:id/workspace', lazy: page(() => import('./pages/Workspace')) },
           { path: '/jobs/:id/pack', lazy: page(() => import('./pages/ApplyPack')) },
+          {
+            element: <RequireAdmin />,
+            children: [{ path: '/admin', lazy: page(() => import('./pages/Admin')) }],
+          },
           { path: '/applications', lazy: page(() => import('./pages/Applications')) },
           { path: '/profile', lazy: page(() => import('./pages/Profile')) },
           { path: '/plans', lazy: page(() => import('./pages/Plans')) },

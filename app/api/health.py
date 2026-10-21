@@ -23,7 +23,7 @@ class HealthReport(BaseModel):
     scheduler: CheckState
 
 
-async def _database_state(request: Request) -> CheckState:
+async def database_state(request: Request) -> CheckState:
     probe: DatabaseProbe = request.app.state.db_probe
     problem = await probe.check(request.app.state.settings.db_health_timeout_seconds)
     if problem is None:
@@ -34,7 +34,7 @@ async def _database_state(request: Request) -> CheckState:
 
 @router.get("/health", response_model=HealthReport)
 async def health(request: Request, response: Response) -> HealthReport:
-    database = await _database_state(request)
+    database = await database_state(request)
     # No live LLM call here: probing a free-tier quota on every health check would waste it.
     llm: CheckState = "configured" if request.app.state.llm.configured else "not_configured"
     report = HealthReport(
@@ -51,7 +51,7 @@ async def health(request: Request, response: Response) -> HealthReport:
 
 @router.get("/ready")
 async def ready(request: Request, response: Response) -> dict[str, str]:
-    if await _database_state(request) != "ok":
+    if await database_state(request) != "ok":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {"status": "not_ready"}
     return {"status": "ready"}

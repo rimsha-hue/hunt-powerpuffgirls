@@ -46,6 +46,18 @@ LABELS: dict[str, str] = {
     "plan_verified": "A linked repo passed every check",
     "skill_proven_by_repo": "A skill joined your ledger from GitHub",
     "plan_deleted": "You deleted a growth plan",
+    "email_verified": "You confirmed your email",
+    "password_reset": "Your password was reset from an emailed link",
+    "password_changed": "You changed your password",
+    "digest_unsubscribed": "You turned off job digest emails",
+    "admin_granted": "The account became an admin",
+    "admin_suspend": "An admin suspended an account",
+    "admin_restore": "An admin restored an account",
+    "admin_sign_out": "An admin signed an account out everywhere",
+    "admin_set_role": "An admin changed an account's role",
+    "admin_delete": "An admin deleted an account",
+    "admin_resend_verification": "An admin resent a verification email",
+    "admin_scout_all": "An admin ran the Scout for everyone",
 }
 
 
