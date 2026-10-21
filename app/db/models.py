@@ -72,6 +72,11 @@ class User(Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     # When the welcome email went out; it is sent once, after the address is proven.
     welcomed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    # "user" or "admin" (app/domain/access.py). Never set from a request by the user themself.
+    role: Mapped[str] = mapped_column(String(10), default="user")
+    # A suspended account can't sign in or use a session until an admin restores it.
+    suspended_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     @property
     def email_verified(self) -> bool:

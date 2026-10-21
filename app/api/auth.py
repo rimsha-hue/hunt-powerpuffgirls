@@ -21,8 +21,9 @@ from app.api.schemas import (
 from app.db.models import User
 from app.integrations import google_oauth
 from app.integrations.email import OutgoingEmail
-from app.services import audit, mailer, passwords, verification
+from app.services import admin, audit, mailer, passwords, verification
 from app.services.auth import (
+    SUSPENDED_MESSAGE,
     authenticate,
     create_session,
     create_user,
@@ -72,7 +73,7 @@ def me_out(
     )
 
 
-def _queue(
+def queue_email(
     request: Request,
     tasks: BackgroundTasks,
     db: Db,
@@ -87,14 +88,19 @@ def _queue(
     tasks.add_task(verification.send_quietly, email, message, event=f"{kind}_email")
 
 
-def _send_verification(
+def send_verification(
     request: Request, tasks: BackgroundTasks, db: Db, user: User, settings: AppSettings
 ) -> None:
     token = verification.issue(db, user, hours=settings.email_verify_hours, now=datetime.now(UTC))
     message = verification.verification_email(
         user, verification.link(settings.base_url, token), settings.email_verify_hours
     )
-    _queue(request, tasks, db, user, message, "verify")
+    queue_email(request, tasks, db, user, message, "verify")
+
+
+def _sync_role(db: Db, user: User, settings: AppSettings) -> None:
+    """An account listed in ADMIN_EMAILS becomes an admin once its email is verified."""
+    admin.grant_if_listed(db, user, settings.admin_email_set)
 
 
 def _welcome(
@@ -103,7 +109,7 @@ def _welcome(
     """The welcome email, once, as soon as the address is proven."""
     message = verification.welcome_once(user, settings.base_url, datetime.now(UTC))
     if message is not None:
-        _queue(request, tasks, db, user, message, "welcome")
+        queue_email(request, tasks, db, user, message, "welcome")
 
 
 def _alert_sign_in(
@@ -123,7 +129,7 @@ def _alert_sign_in(
         method=method,
         ip=request.client.host if request.client else None,
     )
-    _queue(request, tasks, db, user, message, "alert")
+    queue_email(request, tasks, db, user, message, "alert")
 
 
 @router.post(
@@ -144,7 +150,7 @@ async def signup(
     audit.record(
         db, user_id=user.id, actor="user", action="signed_up", entity="user", entity_id=user.id
     )
-    _send_verification(request, tasks, db, user, settings)
+    send_verification(request, tasks, db, user, settings)
     set_session_cookie(response, token, settings)
     return me_out(user, session.csrf_token, settings)
 
@@ -158,6 +164,7 @@ async def verify_email(
         user = await verification.confirm(db, t, now=datetime.now(UTC))
     except verification.VerificationError:
         return RedirectResponse("/profile?verified=failed", status_code=status.HTTP_302_FOUND)
+    _sync_role(db, user, settings)
     _welcome(request, tasks, db, user, settings)
     return RedirectResponse("/profile?verified=1", status_code=status.HTTP_302_FOUND)
 
@@ -180,7 +187,7 @@ async def resend_verification(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Email isn't set up on this server."
         )
-    _send_verification(request, tasks, db, principal.user, settings)
+    send_verification(request, tasks, db, principal.user, settings)
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
@@ -208,6 +215,9 @@ async def login(
         await limiter.hit("login_account", account)
         logger.info("login_failed")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email or password is incorrect.")
+    if user.suspended_at is not None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, SUSPENDED_MESSAGE)
+    _sync_role(db, user, settings)
     token, session = await create_session(db, user, days=settings.session_days)
     audit.record(
         db, user_id=user.id, actor="user", action="logged_in", entity="user", entity_id=user.id
@@ -242,7 +252,7 @@ async def forgot_password(
         message = passwords.reset_email(
             user, passwords.reset_link(settings.base_url, token), minutes
         )
-        _queue(request, tasks, db, user, message, "password_reset")
+        queue_email(request, tasks, db, user, message, "password_reset")
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
@@ -264,7 +274,10 @@ async def reset_password(
         user = await passwords.reset(db, body.token, body.password, now=now)
     except passwords.PasswordError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-    _queue(request, tasks, db, user, passwords.changed_email(user, when=now), "password_changed")
+    queue_email(
+        request, tasks, db, user, passwords.changed_email(user, when=now), "password_changed"
+    )
+    _sync_role(db, user, settings)
     _welcome(request, tasks, db, user, settings)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -302,7 +315,7 @@ async def change_password(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     if user.email_verified:
         message = passwords.changed_email(user, when=now)
-        _queue(request, tasks, db, user, message, "password_changed")
+        queue_email(request, tasks, db, user, message, "password_changed")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -387,6 +400,9 @@ async def google_callback(
     user, created = await sign_in_with_google(
         db, sub=identity.sub, email=identity.email, name=identity.name
     )
+    if user.suspended_at is not None:
+        return _login_redirect("suspended")
+    _sync_role(db, user, settings)
     token, _session = await create_session(db, user, days=settings.session_days)
     audit.record(
         db,

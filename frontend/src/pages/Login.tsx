@@ -17,6 +17,7 @@ const LOGIN_ERRORS: Record<string, string> = {
   google_cancelled: 'Google sign-in was cancelled.',
   google_failed: "We couldn't verify that Google sign-in. Please try again.",
   google_unavailable: 'Google sign-in is not available right now. Use email instead.',
+  suspended: "This account is suspended. Contact support if you think it's a mistake.",
 }
 
 /** Google's multicolour "G", as its sign-in branding guidelines require. */

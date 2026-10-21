@@ -16,6 +16,7 @@ from starlette.types import Scope
 from app import __version__
 from app.api import (
     activity,
+    admin,
     applications,
     auth,
     forms,
@@ -252,6 +253,7 @@ def create_app(
         plans.router,
         activity.router,
         mail.router,
+        admin.router,
     )
     for router in routers:
         app.include_router(router)

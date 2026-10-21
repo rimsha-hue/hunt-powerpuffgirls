@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     max_json_kb: int = Field(default=64, ge=4, le=1024)
 
     # --- Demo account for judges (credentials only ever come from the environment) ---
+    # Accounts with these emails (comma separated) become admins once their email is verified.
+    # Admins can also be made with `python -m app.manage role <email> admin`.
+    admin_emails: str = ""
     demo_user_email: str | None = None
     demo_user_password: SecretStr | None = None
     demo_github_username: str | None = None
@@ -255,6 +258,10 @@ class Settings(BaseSettings):
             "lookup": self.rate_limit_lookup,
             "scout": self.rate_limit_scout,
         }
+
+    @property
+    def admin_email_set(self) -> frozenset[str]:
+        return frozenset(e.strip().lower() for e in self.admin_emails.split(",") if e.strip())
 
     @property
     def email_enabled(self) -> bool:

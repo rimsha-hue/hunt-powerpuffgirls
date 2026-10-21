@@ -18,6 +18,7 @@ _hasher = PasswordHasher()
 _DUMMY_HASH = _hasher.hash(secrets.token_urlsafe(16))
 
 MIN_PASSWORD_LENGTH = 10
+SUSPENDED_MESSAGE = "This account is suspended. Contact support if you think it's a mistake."
 
 
 def hash_password(password: str) -> str:
@@ -123,6 +124,7 @@ async def create_session(
             AuthSession.user_id == user.id, AuthSession.expires_at <= datetime.now(UTC)
         )
     )
+    user.last_login_at = datetime.now(UTC)
     token = secrets.token_urlsafe(32)
     session = AuthSession(
         user_id=user.id,

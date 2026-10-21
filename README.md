@@ -264,6 +264,7 @@ Every setting is declared and documented in [`app/config.py`](app/config.py).
 | Email | `SMTP_USER`, `SMTP_APP_PASSWORD` (Gmail app password) |
 | Google sign-in | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
 | GitHub limits | `GITHUB_TOKEN` (read-only) |
+| Admin accounts | `ADMIN_EMAILS` (comma separated; each becomes an admin once its email is verified), or `python -m app.manage role <email> admin` |
 
 ### Tests and checks
 

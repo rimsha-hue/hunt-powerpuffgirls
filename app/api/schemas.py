@@ -61,6 +61,7 @@ class UserOut(BaseModel):
     has_password: bool
     email_verified: bool
     created_at: datetime
+    role: Literal["user", "admin"]
 
 
 class MeOut(BaseModel):
@@ -576,3 +577,75 @@ class ActivityOut(BaseModel):
     counters: CountersOut
     questions: list[AskedOut]
     events: list[ActivityEventOut]
+
+
+# ---- Admin console ----
+
+
+class AdminRoleIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "admin"]
+
+
+class AdminUserOut(BaseModel):
+    """An account as an admin sees it: identity and counts, never resume or email content."""
+
+    id: int
+    email: str
+    name: str
+    role: Literal["user", "admin"]
+    verified: bool
+    suspended: bool
+    demo: bool
+    google_linked: bool
+    created_at: datetime
+    last_login_at: datetime | None
+    jobs: int
+    applications_sent: int
+
+
+class AdminUsersOut(BaseModel):
+    total: int
+    users: list[AdminUserOut]
+
+
+class AdminSystemOut(BaseModel):
+    env: str
+    version: str
+    database: str
+    llm_models: list[str]
+    embeddings: str
+    scheduler: str
+    job_search: bool
+    company_research: bool
+    email: bool
+    google_sign_in: bool
+    github_token: bool
+    rate_limit_storage: str
+
+
+class AdminOverviewOut(BaseModel):
+    users: int
+    verified: int
+    admins: int
+    suspended: int
+    new_this_week: int
+    active_this_week: int
+    applications_sent_this_week: int
+    plans_verified: int
+    scout_runs_today: int
+    emails_today: dict[str, int]
+    system: AdminSystemOut
+
+
+class AdminAuditOut(BaseModel):
+    id: int
+    created_at: datetime
+    actor: str
+    action: str
+    label: str
+    entity: str
+    entity_id: str | None
+    user_id: int
+    email: str | None
