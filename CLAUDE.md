@@ -17,10 +17,9 @@ own confirmation). When the system cannot prove something, it asks the user.
 - Deadline: 17 October 2026, 12:45 PM PKT. Deploy target: Alternate Clouds, one Docker container.
 - Judging: technical execution 25, usefulness 20, theme 15, creativity 15, automation depth 15,
   UX 10. Grayhat (security engineers) are judges, so security and reliability are visible.
-- Status: Phases 0 to 6 and the Phase 7 eval are done (catch rate 95.0%, false alarms 2.8% on
-  the held-out half; README "Claim checker eval"). Left: MCP server, autofill bookmarklet,
-  Playwright smoke test, then deploy. `docs/BUILD_LOG.md` section 14 has the list.
-  See `docs/HANDOVER.md` for the exact state and known issues.
+- Status: built, deployed on Alternate Clouds and placed top 10 at Agentika 2.0. After the event:
+  account emails, roles and an admin console, data rights. What is simplified, discussed but not
+  done, and the open audit findings are in `docs/NEXT_STEPS.md`.
 
 ## 2. How to work here
 
