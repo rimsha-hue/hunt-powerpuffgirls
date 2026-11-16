@@ -1,141 +1,122 @@
-# Next steps (handoff, 17 Oct 2026, about 08:00 PKT)
+# Next steps (handoff, updated 16 Nov 2026)
 
-Deadline 12:45 PKT. Read `CLAUDE.md` first (rules: no patches, root-cause fixes, one-line commits
-with no Co-Authored-By, PR per change, CI green before merge). Tests and checks run in Docker
-because the local Python is 3.13 and the project needs 3.12 (see "How to run checks" below).
+Read `CLAUDE.md` first (rules: no patches, root-cause fixes, one-line commits with no
+Co-Authored-By, a PR per change, CI green before merge). Checks run in Docker because the local
+Python is 3.13 and the project needs 3.12 (see "How to run checks" at the end).
 
-## State right now
+## Where things stand
 
-- `main` has PR #15 (ledger dedupe, school facts, entry links, migration 0011) and PR #16 (closed
-  postings, embeddings fix, workspace fixes, migration 0012). Neon is migrated to **0012**.
-- **PR #17 is open** (`feat/applications-and-profile`): Applications tab (pipeline stages,
-  follow-up due, outcome buttons, "I applied on their site myself"), Profile page (account,
-  sign-in methods, sources, delete my data; the demo account can't be deleted), the grouped ledger.
-  612 tests pass locally; wait for CI, then merge. No migration in it.
-- Teammate: must `git pull` main before running against Neon.
-- Owner's `.env`: `EMAIL_REDIRECT_TO` is set (from the teammate's file), so **every email goes to
-  that one address**. Empty it to receive digests; it must be empty in production.
+Power Hunt was built for NASCON '26 Agentika 2.0 (deadline 17 Oct 2026), deployed on Alternate
+Clouds, and placed in the **top 10 of 80+ teams**. `main` is at the merge of PR #26. Database
+migrations run to **0016**.
 
-## What changed this session (so you don't redo it)
+### Built for the event (phases 0 to 7 plus later work)
 
-- Facts carry their resume entry (`Evidence.context`); unique key is (user, type, value, source,
-  entry). `school` fact type; degree-school and role-employer pairs are checked together
-  (`claims.pair_up`, `route(paired_with=)`, `Claim.pair_*`). Confirming a paired claim stores both
-  under one user entry.
-- `UTCDateTime` column type: every timestamp reads back timezone-aware.
-- Job liveness: `integrations/liveness.py` (Greenhouse/Lever APIs, else page wording),
-  `services/liveness.py`; runs after each Scout run (before the digest) and when a job is opened.
-  Settings `JOB_OPEN_RECHECK_HOURS`, `JOB_OPEN_CHECKS_PER_RUN`, `JOB_OPEN_CHECK_CONCURRENCY`.
-- Jobs: posted-date filter, Closed view, "posted" vs "found" dates, user-facing status names
-  (`STATUS_LABELS`; "shortlisted" shows as "Picked by you").
-- Embeddings: a blank `EMBEDDING_CACHE_DIR=` used to point fastembed at `/srv`; now blank means
-  unset and the image sets `FASTEMBED_CACHE_PATH=/srv/models`. Check the next Tailor note no longer
-  says "simpler word-overlap mode".
-- Intent sentences ("I look forward to...") are no longer claims (`claims.is_intent`).
-- Workspace: "Compare with your words (N changed)", "Open their form" link, Coach panel on the job
-  page ("Grow into this job").
+- **Evidence ledger** from resume (two-column PDFs, hidden text), GitHub and portfolio. Facts are
+  tied to their resume entry (`Evidence.context`), so a degree belongs to its school and a role to
+  its employer; reworded duplicates across sources merge; course issuers are never employers;
+  school acronyms are aliases; titled sections (certifications, awards, publications) are read one
+  per line from resumes only, never from web pages.
+- **Scout** (JSearch, Remotive, Arbeitnow, recorded fallback) with liveness checks on the
+  employer's own site (Greenhouse/Lever APIs, else page wording); closed jobs move to Closed.
+  Posted-date filter; digest with signed Apply links.
+- **Tailor and Verifier** with the four human gates; degree-school and role-employer pairs checked
+  together; intent sentences ("I look forward to...") are not claims; "revise with your
+  instructions"; compare with your own words.
+- **CV PDFs** in three ATS-friendly layouts (Harvard serif, Jake's compact, Modern), each read back
+  and checked (readable, at most 2 pages, name first, sections in order) before download.
+- **Email and form apply**, Apply Pack, **Coach** with project ideas and one-page proposals,
+  **Tailor tab** (pipeline, follow-ups, applied elsewhere), **Profile**, grouped ledger.
+- **Email verification** at signup, sign-in alerts, Google sign-in as verified, pre-takeover fix.
+- Claim-checker eval: **95.0%** fabrications caught, **2.8%** false alarms (held-out half).
 
-## Later in the session (about 08:30 PKT)
+### Added after the event (teammate, PRs #25 and #26)
 
-- PR #17 merged; Neon at **0013** (`skill_plans.ideas_json`).
-- Branch `feat/coach-project-ideas`: Coach project ideas with PDF/Markdown one-page proposals
-  (done), plus ledger fixes: titled sections (certifications, awards, publications) are read
-  one-per-line from resumes only, never from portfolio pages; the extraction schema rejects bad
-  items one by one instead of failing the whole answer; a school's acronym is an alias of one fact
-  ("Name (ACR)"), merged in `reconcile` and understood by `Ledger.build`; nav tab renamed "Tailor"
-  and plans link back to their job's Tailor. Re-sync the portfolio and re-upload the resume to
-  rebuild old rows.
-- Tailor "revise with instructions" (done, same branch): `POST /jobs/{id}/tailor` takes
-  `{"preferences": "..."}` (max 500); it reaches the model as data and the Verifier checks the result.
-- CV templates with format checks (done, same branch): classic, compact, modern
-  (`integrations/pdf.py` STYLES); every CV is read back with pdfplumber and checked
-  (`domain/cv_format.py`: readable, at most 2 pages, name first, sections in order); a failing
-  template falls back to one that passes. `GET .../cv-check?template=` and `cv.pdf?template=`.
-- UI polish, first pass (done, same branch): one-row sticky header (labels show at xl, accessible
-  names below), wider page (max-w-7xl), shared `PageHeader` and `Stat` in `components/ui.tsx` used by
-  every page. Further polish ideas: consistent empty states, card spacing on Jobs/Tailor, a
-  screenshot-driven pass with the owner.
+- **Account emails** (`ee71876`, migration 0015): welcome email, password reset
+  (`/forgot-password`, `/reset-password`) and change, per-account login throttling on top of the
+  per-IP limit, an email log, and a digest unsubscribe link (`/unsubscribe`).
+- **Daily send limit**: `EMAIL_DAILY_LIMIT` (default 20) digests and applications per account per
+  24 hours.
+- **Needs-you limit** (`46f5e64`): past `MAX_QUESTIONS` (3), rewritten lines go back to the user's
+  own words instead of their claims passing as Inferred. A line in the user's own words is never
+  restored, so its questions stay.
+- **Roles and admin console** (`65a1aa1`, migration 0016): user and admin roles, `/admin` for
+  accounts, system health and the audit log. Admins come from `ADMIN_EMAILS` or the operator
+  command `python -m app.manage role <email> admin` (`python -m app.manage admins` lists them).
+- **Data rights** (`f580a32`): download my data, daily retention clean-up
+  (`RETENTION_UNVERIFIED_DAYS`, `RETENTION_EMAIL_LOG_DAYS`, `RETENTION_TOKEN_DAYS`), privacy and
+  terms pages (`/privacy`, `/terms`, `SUPPORT_EMAIL`).
+- **CI**: documents the Pillow CVEs that can't be fixed until fastembed allows Pillow 13.
 
-## Email verification (about 09:45 PKT, branch `feat/email-verification`)
+New settings since the event: `RATE_LIMIT_LOGIN_ACCOUNT`, `RATE_LIMIT_PASSWORD`, `ADMIN_EMAILS`,
+`PASSWORD_RESET_MINUTES`, `EMAIL_DAILY_LIMIT`, `UNSUBSCRIBE_LINK_DAYS`,
+`RETENTION_UNVERIFIED_DAYS`, `RETENTION_EMAIL_LOG_DAYS`, `RETENTION_TOKEN_DAYS`, `SUPPORT_EMAIL`.
+Run `scripts/sync_env.py` to add them to `.env`, and set them on Alternate Clouds before the next
+deploy (which also applies migrations 0015 and 0016 to Neon).
 
-- PR #19 merged. Neon at **0014** (`users.email_verified_at`, `email_tokens`).
-- Signup emails a single-use link (`/api/auth/verify?t=`, hash stored, `EMAIL_VERIFY_HOURS`);
-  Google sign-in counts as verified; linking Google to an unverified password account removes
-  that password and its sessions (closes the pre-takeover finding). Sign-in alerts go to verified
-  addresses (`LOGIN_ALERTS`). No digest and no application send until verified (closes the
-  "anyone can send from the owner's Gmail" finding for unverified accounts; the demo account stays
-  unverified, so it can't send). UI: banner with "Send a new link", Profile shows the status.
-- Tests: `conftest.signup()` follows the link from a fake outbox (pass `verify=False` to stay
-  unverified).
-- Still open from the audit: per-user daily send limit, double-send race in `composer.send`.
+## Simplified for the deadline (to do properly)
 
-## CV layouts and media (about 10:15 PKT, same branch)
+1. **Needs-you checking.** Confirm is one click and accepts the user's word with no proof, and
+   questions are capped at 3 per document. Proper version: typed evidence that is checked (a
+   GitHub repo through the API: commits by the user and the skill in its languages or files; a
+   certificate or portfolio URL fetched through SafeFetcher: the page shows the user's name and the
+   skill or course; a note labelled "your word", ranked weaker), plus an **"Add a fact"** button on
+   the ledger using the same flow.
+2. **UI polish.** Only a first pass was done (one-row header, shared `PageHeader`, wider pages).
+   A full pass with the owner's screenshots: consistent cards, spacing and empty states.
 
-- CV templates redone after common ATS-friendly designs: `classic` = Harvard (Tinos serif,
-  centered name, ruled headings, italic dates right), `compact` = "Jake's resume" (sans, tight),
-  `modern` (accent name and heading bars). Entry dates sit flush right (`cv_format.split_dates`),
-  skills lines bold their label, certifications/awards list dates on the right. Tinos (OFL) is in
-  `app/templates/fonts` with its licence note.
-- Videos re-encoded with ffmpeg (faststart, no audio, 960px, CRF 30): login uses the owner's new
-  `assets/login-video-2.mp4` (3.8 MB to 0.56 MB) with a regenerated poster; intro 411 to 312 KB.
+## Discussed, not done
 
-## To do, in priority order
+1. **Seniority signal** (recommended; the owner has not approved it yet): level from the ledger
+   (internships only = entry) and from the posting ("Senior", "5+ years"); down-rank and label
+   "Stretch" with a toggle to hide, never a hard filter.
+2. **GitHub ownership.** Repos the user contributed to but doesn't own are ignored (`list_repos`
+   uses `type=owner`; the Coach checks the owner), and nothing proves the typed username is the
+   user's. Fix: count repos where the user authored commits; link the account with GitHub OAuth;
+   delete `source=github` evidence when the username changes.
+3. **Eval coverage.** Only the Verifier is measured. In priority: a live claim-pass mode (real LLM,
+   cached replies), the learning-loop metric (questions per application falling job after job),
+   a ledger extraction eval with gold facts, a larger prompt-injection suite, splitting cases by
+   source line, Wilson intervals.
+4. **Spec extras never built:** MCP server (a small local stdio server exposing `ats_score`,
+   `find_claims` and `job_fit` over the existing domain functions was scoped at about 30 minutes),
+   Playwright smoke test, autofill bookmarklet, demo mode for company research.
 
-1. **Merge PR #17** after CI.
-2. **Email**: signup verification link (signed token like `apply_links`) and a login alert email;
-   require a verified email before any digest or send. This also closes the two high audit findings
-   (account pre-takeover via Google linking, and anyone sending email from the owner's Gmail). Add a
-   per-user daily send limit setting.
-3. **Needs-you evidence that is actually checked**: today a confirm takes any link or note unchecked.
-   Typed evidence: GitHub repo (API: commits by the user, the skill in languages/files), certificate
-   or portfolio URL (SafeFetcher: page shows the user's name and the skill), note = "your word"
-   (label it weaker). Same flow for a new **"Add a fact"** button on the ledger.
-4. **Coach project ideas**: after the steps, 2 to 3 concrete project ideas, each with a one-page
-   proposal (problem, scope, stack, milestones, how it proves the skill), downloadable (PDF or MD).
-5. **Tailor "revise with instructions"** box (single instruction, not a chatbot); the output goes
-   through the Verifier like any rewrite.
-6. **CV PDF**: today it is a text dump (`integrations/pdf.py`). Two or three ATS-safe templates,
-   auto-picked by the original's layout, plus automatic checks before download (text round-trips,
-   nothing clipped, page count, fonts embedded).
-7. **Seniority signal** (owner asked for an opinion first; recommended, not yet approved): level from
-   the ledger (internships only = entry), level from the posting ("Senior", "5+ years"); down-rank
-   and label "Stretch" with a toggle to hide, never a hard filter.
-8. **GitHub ownership**: collaborator repos are ignored (`list_repos` uses `type=owner`; Coach checks
-   owner). Proper fix: count repos where the user authored commits; prove the account via GitHub
-   OAuth. Delete `source=github` evidence when the username changes.
-9. Remaining audit items (see the audit list below), the UI polish pass (same Powerpuff palette and
-   fonts, more consistent cards and spacing), then **deploy to Alternate Clouds** (reserve 1 hour:
-   build, set production env without `EMAIL_REDIRECT_TO`, Google callback for the public URL, check
-   `/health` and `/ready`).
+## Audit findings still open
 
-Optional spec items still not built: MCP server (`/mcp`), Playwright smoke test, autofill
-bookmarklet, demo mode for company research.
+Closed since the audit: account pre-takeover, unverified sends, per-account daily send limit,
+per-account login throttling, demo account deletion.
 
-## Audit findings still open (from this session's review)
+- **Medium:** double-send race in `composer.send`: a double click or a failed commit after SMTP can
+  send twice. Mark the row "sending" with a conditional UPDATE and commit before sending.
+- **Medium:** the demo account can still change its profile (only deletion and sending are
+  blocked).
+- **Medium:** DOCX decompression bomb: sum `ZipInfo.file_size` in `sniff_resume` and cap the total
+  and the compression ratio.
+- **Medium:** `FORWARDED_ALLOW_IPS` isn't a setting in `app/config.py`; behind the platform proxy
+  every client may share one IP bucket. No per-user limit on `PUT /application/email` and
+  `PUT /answers/{i}` (both call the LLM).
+- **Medium:** Apply links replace an existing session, a GET uses up the token (email link
+  scanners), and `redeem` can race.
+- **Low:** `compose.py` passes user text as a `re.sub` replacement (use a function); names skip
+  `normalize_person_name` at signup; PDF rendering and form parsing outside the CV download run on
+  the event loop; uploaded attachments keep the user's file extension; `import_posting` uses
+  `scalar_one_or_none` on a query that can match two rows; the frontend repeats some server
+  limits; the Google OAuth timeout, `pool_recycle`, SMTP port and sender name belong in config.
 
-- High: Google sign-in links to an unverified password account with the same email (pre-takeover).
-- High: any account can send email from the owner's mailbox; digests go to unverified addresses.
-- Medium: double-send race in `composer.send` (mark "sending" with a conditional UPDATE first).
-- Medium: demo account can still change its profile and send email (delete is now refused).
-- Medium: DOCX decompression bomb (sum `ZipInfo.file_size` in `sniff_resume`).
-- Medium: no rate limit on `PUT /application/email` and `PUT /answers/{i}`; limits are per IP only;
-  `FORWARDED_ALLOW_IPS` isn't a setting in `app/config.py`.
-- Medium: Apply link replaces an existing session, GET burns the token (mail scanners), redeem race.
-- Low: `compose.py` `re.sub` with user text as replacement (use a function); names skip
-  `normalize_person_name` at signup; CPU work (PDF render, form parse) on the event loop; digest
-  tokens flushed but not committed before sending; uploaded file names keep the user's extension;
-  `import_posting` `scalar_one_or_none` can raise; frontend repeats server limits; a few values
-  belong in config (Google OAuth timeout, `pool_recycle`, SMTP port and sender name).
-- Eval: measures the Verifier only; proposals in priority: live claim-pass mode, learning-loop
-  metric, ledger extraction eval, injection suite, split by source line, Wilson intervals.
+## Repository housekeeping
+
+- `HUNT_BUILD_PROMPT.md`, `POWER_HUNT_BUILD_PROMPT.md` and `Claude outputs/` (submission PDF,
+  pitch deck and proposal, which hold personal details and the demo login) are local only and must
+  never be committed. `submission/` is excluded in `.git/info/exclude`.
+- `.gitignore` has `assets/`, which also matches `frontend/src/assets`. Existing files there are
+  tracked, but a new file added there is silently ignored; changing the rule to `/assets/` fixes it.
 
 ## How to run checks (Docker, Python 3.12)
 
-The scripts used this session live in the session scratchpad; recreate them like this:
-
 ```sh
-# check.sh: mount app, tests, eval, scripts, data, fixtures, pyproject.toml, alembic.ini into the
-# api image at /srv, then:
+# Mount app, tests, eval, scripts, data, fixtures, pyproject.toml and alembic.ini into the api
+# image at /srv, then:
 cd /srv
 python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['optional-dependencies']['dev']))" > /tmp/dev.txt
 pip install -q -r /tmp/dev.txt
